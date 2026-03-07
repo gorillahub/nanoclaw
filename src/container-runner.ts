@@ -220,6 +220,10 @@ function readSecrets(): Record<string, string> {
     'ANTHROPIC_API_KEY',
     'ANTHROPIC_BASE_URL',
     'ANTHROPIC_AUTH_TOKEN',
+    // PM Agent credentials
+    'AIRTABLE_API_KEY',
+    'AIRTABLE_BASE_ID',
+    'GITHUB_TOKEN',
   ]);
 }
 
