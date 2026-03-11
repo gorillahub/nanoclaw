@@ -89,9 +89,9 @@ export class GroupQueue {
 
     const state = this.getGroup(groupJid);
 
-    // Check for an idle non-task container first — reuse doesn't cost a new slot.
-    // The idle container will pick up the message via sendMessage() in the
-    // message polling loop, so we just flag pendingMessages.
+    // EDGE CASE 2: Check idle containers BEFORE global cap. Reuse doesn't cost
+    // a new slot (container already counted in activeCount), so a group can always
+    // reuse its own idle container even when at the global cap.
     const idleContainer = this.findIdleContainer(state);
     if (idleContainer) {
       state.pendingMessages = true;
@@ -115,7 +115,10 @@ export class GroupQueue {
       return;
     }
 
-    // Spawn a new container — even if others are already running for this group
+    // Spawn a new container — even if others are already running for this group.
+    // EDGE CASE 1: runForGroup creates the slot synchronously (before awaiting),
+    // so a second enqueueMessageCheck sees the new slot with idleWaiting=false
+    // and won't mistake it for an idle container.
     this.runForGroup(groupJid, 'messages').catch((err) =>
       logger.error({ groupJid, err }, 'Unhandled error in runForGroup'),
     );
@@ -126,8 +129,8 @@ export class GroupQueue {
 
     const state = this.getGroup(groupJid);
 
-    // Dedup check: scan ALL container slots for the group, plus pending tasks.
-    // A task might be running in any of the group's containers.
+    // EDGE CASE 5: Dedup must scan ALL container slots for the group, not just
+    // a single field. A task might be running in any of the group's containers.
     for (const slot of state.containers.values()) {
       if (slot.runningTaskId === taskId) {
         logger.debug({ groupJid, taskId }, 'Task already running, skipping');
@@ -187,8 +190,7 @@ export class GroupQueue {
     const state = this.getGroup(groupJid);
 
     // Resolve the target container slot
-    const targetId =
-      containerId ?? this.pendingRegistrations.get(groupJid);
+    const targetId = containerId ?? this.pendingRegistrations.get(groupJid);
     if (targetId) {
       this.pendingRegistrations.delete(groupJid);
     }
@@ -249,9 +251,9 @@ export class GroupQueue {
   sendMessage(groupJid: string, text: string): boolean {
     const state = this.getGroup(groupJid);
 
-    // Find an idle non-task container to receive this message.
-    // Multiple idle containers may exist; pick the first — others stay idle
-    // and will eventually time out.
+    // EDGE CASE 4: Multiple idle containers may exist for the same group.
+    // Pick the first — others stay idle and will eventually time out via
+    // the container's own idle timeout mechanism.
     const slot = this.findIdleContainer(state);
     if (!slot || !slot.groupFolder) return false;
 
@@ -367,10 +369,15 @@ export class GroupQueue {
         }
       }
     } catch (err) {
-      logger.error({ groupJid, containerId, err }, 'Error processing messages for group');
+      logger.error(
+        { groupJid, containerId, err },
+        'Error processing messages for group',
+      );
       this.scheduleRetry(groupJid, state);
     } finally {
-      // Clean up this specific slot — other containers for this group are unaffected
+      // EDGE CASE 3: Always clean up this specific slot in finally — even if
+      // processMessagesFn throws. No orphan slots possible. Other containers
+      // for this group are completely unaffected.
       state.containers.delete(containerId);
       this.pendingRegistrations.delete(groupJid);
       this.activeCount--;
@@ -413,9 +420,12 @@ export class GroupQueue {
     try {
       await task.fn();
     } catch (err) {
-      logger.error({ groupJid, taskId: task.id, containerId, err }, 'Error running task');
+      logger.error(
+        { groupJid, taskId: task.id, containerId, err },
+        'Error running task',
+      );
     } finally {
-      // Clean up this specific slot — other containers for this group are unaffected
+      // EDGE CASE 3: Always clean up in finally — no orphan task slots possible.
       state.containers.delete(containerId);
       this.pendingRegistrations.delete(groupJid);
       this.activeCount--;
@@ -448,8 +458,10 @@ export class GroupQueue {
 
   /**
    * After a container finishes, check if there's pending work for this group.
-   * Only starts new containers when there are pending items AND room under the cap.
-   * Does NOT interfere with other still-running containers for the same group.
+   *
+   * EDGE CASE 6: Only starts new containers when there are pending items AND
+   * room under the global cap. Does NOT interfere with other still-running
+   * containers for the same group — each container's lifecycle is independent.
    */
   private drainGroup(groupJid: string): void {
     if (this.shuttingDown) return;
@@ -472,10 +484,7 @@ export class GroupQueue {
     }
 
     // Then pending messages — only spawn if under global cap
-    if (
-      state.pendingMessages &&
-      this.activeCount < MAX_CONCURRENT_CONTAINERS
-    ) {
+    if (state.pendingMessages && this.activeCount < MAX_CONCURRENT_CONTAINERS) {
       this.runForGroup(groupJid, 'drain').catch((err) =>
         logger.error(
           { groupJid, err },
