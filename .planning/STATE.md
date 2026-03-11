@@ -3,14 +3,14 @@
 ## Project Reference
 
 - **Core value:** Messages never blocked by running containers
-- **Current focus:** Phase 2 — Session Awareness (Complete — both plans done)
+- **Current focus:** Project complete — deployed to VPS 2026-03-11
 - **Airtable record:** `recFADjzpnBY8NHh4`
 
 ## Current Position
 
-- **Phase:** 2 — Session Awareness
-- **Plan:** 2 of 2 (02-02 complete)
-- **Status:** Complete
+- **Phase:** All complete
+- **Plan:** All 5 plans across 2 phases complete
+- **Status:** Deployed
 - **Progress:** ██████████ 100%
 
 ## Performance Metrics
@@ -19,7 +19,7 @@
 |--------|-------|
 | Phases total | 2 |
 | Phases complete | 2 |
-| Plans total | 6 |
+| Plans total | 5 |
 | Plans complete | 5 |
 | Tasks total | 8 |
 | Tasks complete | 8 |
@@ -86,11 +86,15 @@
 ## Session Continuity
 
 ### Last Session
-- 2026-03-11T21:08:27Z
+- 2026-03-11T22:12:10Z
 
 ### Handover Notes
 - Phase 01 complete: All 3 plans done (01-01, 01-02, 01-03)
 - Phase 02 complete: All 2 plans done (02-01, 02-02)
 - Host writes active_sessions.json on container start/exit (02-01)
 - Container reads it on startup, injects <active-sessions> XML into initial prompt (02-02)
-- All 6 plans across both phases complete — project done
+- Google Chat channel adapter added to git repo (was VPS-only)
+- Bug fixes: concurrent task spawning + message loop piping
+- Deployed to VPS 2026-03-11T22:12:10Z — service active
+- OAuth token (Claude Max 20x) active — API key removed
+- Passwordless deploy configured via sudoers (craig → nanoclaw)

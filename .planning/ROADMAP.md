@@ -17,9 +17,9 @@ Transform NanoClaw's GroupQueue from a single-container-per-group model to a mul
 **Plans:** 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Refactor GroupQueue data model from single-container to multi-container
-- [ ] 01-02-PLAN.md — Update index.ts and task-scheduler.ts for multi-container API
-- [ ] 01-03-PLAN.md — Rewrite and extend GroupQueue test suite
+- [x] 01-01-PLAN.md — Refactor GroupQueue data model from single-container to multi-container
+- [x] 01-02-PLAN.md — Update index.ts and task-scheduler.ts for multi-container API
+- [x] 01-03-PLAN.md — Rewrite and extend GroupQueue test suite
 
 **Success Criteria:**
 1. A second message to the same group spawns a new container while the first container is still running
@@ -39,8 +39,8 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Host-side session awareness file writer + lifecycle hooks + tests
-- [ ] 02-02-PLAN.md — Container-side awareness read + prompt injection
+- [x] 02-01-PLAN.md — Host-side session awareness file writer + lifecycle hooks + tests
+- [x] 02-02-PLAN.md — Container-side awareness read + prompt injection
 
 **Success Criteria:**
 1. `data/ipc/{group}/active_sessions.json` accurately lists all running containers for a group (name, start time, type, repos)
@@ -53,4 +53,12 @@ Plans:
 | Phase | Status | Plans | Completed |
 |-------|--------|-------|-----------|
 | 1 — Multi-Container GroupQueue | Complete | 3 | 3 |
-| 2 — Session Awareness + Deployment | Planning Complete | 2 | 0 |
+| 2 — Session Awareness + Deployment | Complete | 2 | 2 |
+
+## Deployment
+
+- **Deployed:** 2026-03-11T22:12:10Z
+- Google Chat channel adapter added to git repo and deployed
+- OAuth token (Claude Max 20x) active — API key removed
+- Concurrent sessions live — up to 5 containers globally
+- Passwordless deploy configured via sudoers
