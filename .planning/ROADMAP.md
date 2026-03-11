@@ -36,6 +36,12 @@ Plans:
 
 **Requirements:** OBS-01, OBS-02
 
+**Plans:** 2 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — Host-side session awareness file writer + lifecycle hooks + tests
+- [ ] 02-02-PLAN.md — Container-side awareness read + prompt injection
+
 **Success Criteria:**
 1. `data/ipc/{group}/active_sessions.json` accurately lists all running containers for a group (name, start time, type, repos)
 2. The file updates within 1 second of container start/exit
@@ -46,5 +52,5 @@ Plans:
 
 | Phase | Status | Plans | Completed |
 |-------|--------|-------|-----------|
-| 1 — Multi-Container GroupQueue | Planning Complete | 3 | 0 |
-| 2 — Session Awareness + Deployment | Not Started | 0 | 0 |
+| 1 — Multi-Container GroupQueue | Complete | 3 | 3 |
+| 2 — Session Awareness + Deployment | Planning Complete | 2 | 0 |
