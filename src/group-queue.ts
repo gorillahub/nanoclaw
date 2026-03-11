@@ -8,7 +8,7 @@ import { logger } from './logger.js';
 interface QueuedTask {
   id: string;
   groupJid: string;
-  fn: () => Promise<void>;
+  fn: (containerId: string) => Promise<void>;
 }
 
 const MAX_RETRIES = 5;
@@ -124,7 +124,11 @@ export class GroupQueue {
     );
   }
 
-  enqueueTask(groupJid: string, taskId: string, fn: () => Promise<void>): void {
+  enqueueTask(
+    groupJid: string,
+    taskId: string,
+    fn: (containerId: string) => Promise<void>,
+  ): void {
     if (this.shuttingDown) return;
 
     const state = this.getGroup(groupJid);
@@ -418,7 +422,7 @@ export class GroupQueue {
     );
 
     try {
-      await task.fn();
+      await task.fn(containerId);
     } catch (err) {
       logger.error(
         { groupJid, taskId: task.id, containerId, err },

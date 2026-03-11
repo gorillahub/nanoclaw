@@ -71,6 +71,7 @@ export interface SchedulerDependencies {
     proc: ChildProcess,
     containerName: string,
     groupFolder: string,
+    containerId: string,
   ) => void;
   sendMessage: (jid: string, text: string) => Promise<void>;
 }
@@ -78,6 +79,7 @@ export interface SchedulerDependencies {
 async function runTask(
   task: ScheduledTask,
   deps: SchedulerDependencies,
+  containerId: string,
 ): Promise<void> {
   const startTime = Date.now();
   let groupDir: string;
@@ -163,8 +165,11 @@ async function runTask(
   const scheduleClose = () => {
     if (closeTimer) return; // already scheduled
     closeTimer = setTimeout(() => {
-      logger.debug({ taskId: task.id }, 'Closing task container after result');
-      deps.queue.closeStdin(task.chat_jid);
+      logger.debug(
+        { taskId: task.id, containerId },
+        'Closing task container after result',
+      );
+      deps.queue.closeStdin(task.chat_jid, containerId);
     }, TASK_CLOSE_DELAY_MS);
   };
 
@@ -181,7 +186,13 @@ async function runTask(
         assistantName: ASSISTANT_NAME,
       },
       (proc, containerName) =>
-        deps.onProcess(task.chat_jid, proc, containerName, task.group_folder),
+        deps.onProcess(
+          task.chat_jid,
+          proc,
+          containerName,
+          task.group_folder,
+          containerId,
+        ),
       async (streamedOutput: ContainerOutput) => {
         if (streamedOutput.result) {
           result = streamedOutput.result;
@@ -190,7 +201,7 @@ async function runTask(
           scheduleClose();
         }
         if (streamedOutput.status === 'success') {
-          deps.queue.notifyIdle(task.chat_jid);
+          deps.queue.notifyIdle(task.chat_jid, containerId);
         }
         if (streamedOutput.status === 'error') {
           error = streamedOutput.error || 'Unknown error';
@@ -261,8 +272,10 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
           continue;
         }
 
-        deps.queue.enqueueTask(currentTask.chat_jid, currentTask.id, () =>
-          runTask(currentTask, deps),
+        deps.queue.enqueueTask(
+          currentTask.chat_jid,
+          currentTask.id,
+          (containerId) => runTask(currentTask, deps, containerId),
         );
       }
     } catch (err) {
