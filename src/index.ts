@@ -346,6 +346,7 @@ async function runAgent(
         chatJid,
         isMain,
         assistantName: ASSISTANT_NAME,
+        containerId,
       },
       (proc, containerName) =>
         queue.registerProcess(

@@ -184,6 +184,7 @@ async function runTask(
         isMain,
         isScheduledTask: true,
         assistantName: ASSISTANT_NAME,
+        containerId,
       },
       (proc, containerName) =>
         deps.onProcess(

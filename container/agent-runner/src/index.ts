@@ -27,6 +27,7 @@ interface ContainerInput {
   isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
+  containerId?: string;
   secrets?: Record<string, string>;
 }
 
@@ -326,6 +327,45 @@ function drainIpcInput(): string[] {
   }
 }
 
+interface ActiveSession {
+  containerId: string;
+  started: string;
+  type: string;
+  repos?: string[];
+}
+
+/**
+ * Read the session awareness file and format as an XML context block.
+ * Returns empty string if the file is missing, corrupt, or contains no
+ * other sessions. Filters out own container to avoid self-referencing.
+ */
+function readSessionAwareness(ownContainerId?: string): string {
+  const awarenessPath = '/workspace/ipc/active_sessions.json';
+  try {
+    if (!fs.existsSync(awarenessPath)) return '';
+    const raw = fs.readFileSync(awarenessPath, 'utf-8');
+    if (!raw.trim()) return '';
+    const data = JSON.parse(raw);
+    const sessions: ActiveSession[] = data?.sessions;
+    if (!Array.isArray(sessions) || sessions.length === 0) return '';
+
+    // Filter out own container so the agent only sees other sessions
+    const others = ownContainerId
+      ? sessions.filter((s) => s.containerId !== ownContainerId)
+      : sessions;
+    if (others.length === 0) return '';
+
+    const lines = others.map(
+      (s) =>
+        `  <session containerId="${s.containerId}" started="${s.started}" type="${s.type}"${s.repos?.length ? ` repos="${s.repos.join(', ')}"` : ''} />`,
+    );
+    return `<active-sessions>\n${lines.join('\n')}\n</active-sessions>`;
+  } catch (err) {
+    log(`Failed to read session awareness: ${err instanceof Error ? err.message : String(err)}`);
+    return '';
+  }
+}
+
 /**
  * Wait for a new IPC message or _close sentinel.
  * Returns the messages as a single string, or null if _close.
@@ -533,6 +573,14 @@ async function main(): Promise<void> {
   if (pending.length > 0) {
     log(`Draining ${pending.length} pending IPC messages into initial prompt`);
     prompt += '\n' + pending.join('\n');
+  }
+
+  // Inject session awareness context (other active containers in this group)
+  const awarenessContext = readSessionAwareness(containerInput.containerId);
+  if (awarenessContext) {
+    prompt = `${awarenessContext}\n\n${prompt}`;
+    const sessionCount = (awarenessContext.match(/<session /g) || []).length;
+    log(`Injected session awareness (${sessionCount} other active session${sessionCount !== 1 ? 's' : ''})`);
   }
 
   // Query loop: run query → wait for IPC message → run new query → repeat
