@@ -453,24 +453,14 @@ async function startMessageLoop(): Promise<void> {
             allPending.length > 0 ? allPending : groupMessages;
           const formatted = formatMessages(messagesToSend, TIMEZONE);
 
-          if (queue.sendMessage(chatJid, formatted)) {
-            logger.debug(
-              { chatJid, count: messagesToSend.length },
-              'Piped messages to active container',
-            );
-            lastAgentTimestamp[chatJid] =
-              messagesToSend[messagesToSend.length - 1].timestamp;
-            saveState();
-            // Show typing indicator while the container processes the piped message
-            channel
-              .setTyping?.(chatJid, true)
-              ?.catch((err) =>
-                logger.warn({ chatJid, err }, 'Failed to set typing indicator'),
-              );
-          } else {
-            // No active container — enqueue for a new one
-            queue.enqueueMessageCheck(chatJid);
-          }
+          // Always spawn a new container for each batch of new messages.
+          // Don't pipe into an existing container — that serialises work.
+          // The idle container reuse in enqueueMessageCheck handles the
+          // optimisation case where no container is actively processing.
+          lastAgentTimestamp[chatJid] =
+            messagesToSend[messagesToSend.length - 1].timestamp;
+          saveState();
+          queue.enqueueMessageCheck(chatJid);
         }
       }
     } catch (err) {
