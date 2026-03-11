@@ -3,15 +3,15 @@
 ## Project Reference
 
 - **Core value:** Messages never blocked by running containers
-- **Current focus:** Phase 1 — Multi-Container GroupQueue (Plan 01 complete)
+- **Current focus:** Phase 1 — Multi-Container GroupQueue (Plans 01 + 03 complete)
 - **Airtable record:** `recFADjzpnBY8NHh4`
 
 ## Current Position
 
 - **Phase:** 1 — Multi-Container GroupQueue
-- **Plan:** 2 of 3
+- **Plan:** 3 of 3
 - **Status:** In Progress
-- **Progress:** █░░░░░░░░░ 11%
+- **Progress:** ███░░░░░░░ 33%
 
 ## Performance Metrics
 
@@ -20,13 +20,14 @@
 | Phases total | 2 |
 | Phases complete | 0 |
 | Plans total | 6 |
-| Plans complete | 1 |
-| Tasks total | 2 |
-| Tasks complete | 2 |
+| Plans complete | 2 |
+| Tasks total | 3 |
+| Tasks complete | 3 |
 
 | Phase | Plan | Duration | Tasks | Files |
 |-------|------|----------|-------|-------|
 | 01 | 01 | 308s | 2 | 1 |
+| 01 | 03 | 128s | 1 | 1 |
 
 ## Accumulated Context
 
@@ -35,6 +36,8 @@
 - pendingRegistrations map bridges containerId from runForGroup to registerProcess
 - containerId parameter made optional on public API for backward compatibility
 - Idle container reuse checked before global cap (no new slot cost)
+- Extract containerId from processMessagesFn mock calls for precise slot targeting in tests
+- Use completion callback arrays for concurrent container control in tests
 
 ### Technical Notes
 - GroupQueue now uses `containers: Map<string, ContainerSlot>` per group — multi-slot
@@ -45,9 +48,9 @@
 - `registerProcess()` uses pendingRegistrations bridge for containerId flow
 - Session IDs stored per group folder in SQLite (`sessions` table)
 - Task containers (`type: 'task'`) reject `sendMessage()` — this stays
-- Existing test `only runs one container per group at a time` now fails (expected — Plan 01-03 fixes)
 - `setProcessMessagesFn` callback now includes `containerId` parameter
-- 366/367 tests pass (1 expected failure in old single-container test)
+- 371/371 tests pass (was 366/367, now all green after test rewrite)
+- Test suite covers: CONC-01, CONC-04, CONC-05, COMPAT-01 + all existing concepts
 
 ### Blockers
 - (none)
@@ -58,9 +61,9 @@
 ## Session Continuity
 
 ### Last Session
-- 2026-03-11T20:44:45Z
+- 2026-03-11T20:49:00Z
 
 ### Handover Notes
 - Plan 01-01 complete: GroupQueue data model refactored to multi-container
+- Plan 01-03 complete: Test suite rewritten for multi-container semantics (17 tests, all passing)
 - Next: Plan 01-02 (update callers in index.ts and task-scheduler.ts)
-- Then: Plan 01-03 (update tests for multi-container behaviour)
