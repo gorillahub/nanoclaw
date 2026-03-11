@@ -250,6 +250,32 @@ async function runTask(
 }
 
 let schedulerRunning = false;
+let schedulerDeps: SchedulerDependencies | null = null;
+
+/**
+ * Core scheduler check: find due tasks and enqueue them.
+ * Called both by the periodic poll loop and by triggerSchedulerCheck().
+ */
+function checkDueTasks(deps: SchedulerDependencies): void {
+  const dueTasks = getDueTasks();
+  if (dueTasks.length > 0) {
+    logger.info({ count: dueTasks.length }, 'Found due tasks');
+  }
+
+  for (const task of dueTasks) {
+    // Re-check task status in case it was paused/cancelled
+    const currentTask = getTaskById(task.id);
+    if (!currentTask || currentTask.status !== 'active') {
+      continue;
+    }
+
+    deps.queue.enqueueTask(
+      currentTask.chat_jid,
+      currentTask.id,
+      (containerId) => runTask(currentTask, deps, containerId),
+    );
+  }
+}
 
 export function startSchedulerLoop(deps: SchedulerDependencies): void {
   if (schedulerRunning) {
@@ -257,28 +283,12 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
     return;
   }
   schedulerRunning = true;
+  schedulerDeps = deps;
   logger.info('Scheduler loop started');
 
   const loop = async () => {
     try {
-      const dueTasks = getDueTasks();
-      if (dueTasks.length > 0) {
-        logger.info({ count: dueTasks.length }, 'Found due tasks');
-      }
-
-      for (const task of dueTasks) {
-        // Re-check task status in case it was paused/cancelled
-        const currentTask = getTaskById(task.id);
-        if (!currentTask || currentTask.status !== 'active') {
-          continue;
-        }
-
-        deps.queue.enqueueTask(
-          currentTask.chat_jid,
-          currentTask.id,
-          (containerId) => runTask(currentTask, deps, containerId),
-        );
-      }
+      checkDueTasks(deps);
     } catch (err) {
       logger.error({ err }, 'Error in scheduler loop');
     }
@@ -287,6 +297,20 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
   };
 
   loop();
+}
+
+/**
+ * Immediately check for due tasks outside the normal poll cycle.
+ * Called by the IPC watcher after creating a new task so interactive
+ * messages don't wait up to SCHEDULER_POLL_INTERVAL (60s) to be picked up.
+ */
+export function triggerSchedulerCheck(): void {
+  if (!schedulerDeps) return;
+  try {
+    checkDueTasks(schedulerDeps);
+  } catch (err) {
+    logger.error({ err }, 'Error in triggered scheduler check');
+  }
 }
 
 /** @internal - for tests only. */

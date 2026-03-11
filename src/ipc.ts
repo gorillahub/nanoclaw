@@ -8,6 +8,7 @@ import { AvailableGroup } from './container-runner.js';
 import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
+import { triggerSchedulerCheck } from './task-scheduler.js';
 import { RegisteredGroup } from './types.js';
 
 export interface IpcDeps {
@@ -270,6 +271,10 @@ export async function processTaskIpc(
           { taskId, sourceGroup, targetFolder, contextMode },
           'Task created via IPC',
         );
+
+        // Immediately notify the scheduler so interactive messages don't
+        // wait up to SCHEDULER_POLL_INTERVAL (60s) for the next poll cycle.
+        triggerSchedulerCheck();
       }
       break;
 
