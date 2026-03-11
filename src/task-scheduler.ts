@@ -151,10 +151,12 @@ async function runTask(
   let result: string | null = null;
   let error: string | null = null;
 
-  // For group context mode, use the group's current session
-  const sessions = deps.getSessions();
-  const sessionId =
-    task.context_mode === 'group' ? sessions[task.group_folder] : undefined;
+  // CONC-02: Fresh session per container. Even 'group' context mode tasks
+  // get a fresh session — sharing a sessionId between concurrent containers
+  // causes the second to block on the Claude API session lock, defeating
+  // the purpose of concurrency. The container still has full group context
+  // (CLAUDE.md, mounted repos, etc.) without needing the same session.
+  const sessionId = undefined;
 
   // After the task produces a result, close the container promptly.
   // Tasks are single-turn — no need to wait IDLE_TIMEOUT (30 min) for the
