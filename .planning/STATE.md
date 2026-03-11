@@ -3,15 +3,15 @@
 ## Project Reference
 
 - **Core value:** Messages never blocked by running containers
-- **Current focus:** Roadmap created, awaiting Phase 1 planning
+- **Current focus:** Phase 1 — Multi-Container GroupQueue (Plan 01 complete)
 - **Airtable record:** `recFADjzpnBY8NHh4`
 
 ## Current Position
 
 - **Phase:** 1 — Multi-Container GroupQueue
-- **Plan:** None (not yet planned)
-- **Status:** Not Started
-- **Progress:** ░░░░░░░░░░ 0%
+- **Plan:** 2 of 3
+- **Status:** In Progress
+- **Progress:** █░░░░░░░░░ 11%
 
 ## Performance Metrics
 
@@ -19,24 +19,35 @@
 |--------|-------|
 | Phases total | 2 |
 | Phases complete | 0 |
-| Plans total | 0 |
-| Plans complete | 0 |
-| Tasks total | 0 |
-| Tasks complete | 0 |
+| Plans total | 6 |
+| Plans complete | 1 |
+| Tasks total | 2 |
+| Tasks complete | 2 |
+
+| Phase | Plan | Duration | Tasks | Files |
+|-------|------|----------|-------|-------|
+| 01 | 01 | 308s | 2 | 1 |
 
 ## Accumulated Context
 
 ### Key Decisions
-- (none yet)
+- ContainerSlot map replaces active boolean for multi-container support
+- pendingRegistrations map bridges containerId from runForGroup to registerProcess
+- containerId parameter made optional on public API for backward compatibility
+- Idle container reuse checked before global cap (no new slot cost)
 
 ### Technical Notes
-- GroupQueue currently uses `active: boolean` per group — single slot
+- GroupQueue now uses `containers: Map<string, ContainerSlot>` per group — multi-slot
 - The `activeCount` tracks global container count against `MAX_CONCURRENT_CONTAINERS`
 - `waitingGroups` is a FIFO queue for groups that couldn't get a slot
-- `sendMessage()` pipes to idle containers, `closeStdin()` signals wind-down
+- `sendMessage()` finds any idle non-task container and pipes to it
+- `closeStdin()` can target a specific container via containerId or first idle
+- `registerProcess()` uses pendingRegistrations bridge for containerId flow
 - Session IDs stored per group folder in SQLite (`sessions` table)
-- Task containers (`isTaskContainer: true`) reject `sendMessage()` — this stays
-- Existing test file (`group-queue.test.ts`) has 10 tests that enforce one-at-a-time-per-group — these need updating
+- Task containers (`type: 'task'`) reject `sendMessage()` — this stays
+- Existing test `only runs one container per group at a time` now fails (expected — Plan 01-03 fixes)
+- `setProcessMessagesFn` callback now includes `containerId` parameter
+- 366/367 tests pass (1 expected failure in old single-container test)
 
 ### Blockers
 - (none)
@@ -47,7 +58,9 @@
 ## Session Continuity
 
 ### Last Session
-- (project just created)
+- 2026-03-11T20:44:45Z
 
 ### Handover Notes
-- Ready for `/gsd-plan-phase 1`
+- Plan 01-01 complete: GroupQueue data model refactored to multi-container
+- Next: Plan 01-02 (update callers in index.ts and task-scheduler.ts)
+- Then: Plan 01-03 (update tests for multi-container behaviour)
