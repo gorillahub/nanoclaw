@@ -117,3 +117,4 @@
    - Added `[SILENT]` detection to `formatOutbound()` in `router.ts`
    - Unified all three outbound paths to use `formatOutbound()`: user-message streaming, scheduler, and IPC send_message (which previously had NO filtering)
    - 432 tests passing
+- **PM Agent MCP tools deployed (2026-03-12):** `create_goal` and `create_risk` tools were built in gos-pm-agent but the compiled `dist/` in VPS group folders was stale. Rebuilt and deployed to both google-chat and whatsapp group folders. Holly verified working — created R026 and G018 via Google Chat.
