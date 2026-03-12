@@ -363,6 +363,30 @@ export function getMessagesSince(
     .all(chatJid, sinceTimestamp, `${botPrefix}:%`, limit) as NewMessage[];
 }
 
+/**
+ * Get the N most recent messages for a chat, including both user and
+ * bot messages.  Used to build conversation history context for
+ * channels (like Google Chat) where messages arrive as standalone tasks
+ * rather than through the message-loop accumulation path.
+ */
+export function getRecentMessages(
+  chatJid: string,
+  limit: number = 20,
+): NewMessage[] {
+  const sql = `
+    SELECT * FROM (
+      SELECT id, chat_jid, sender, sender_name, content, timestamp,
+             is_from_me, is_bot_message
+      FROM messages
+      WHERE chat_jid = ?
+        AND content != '' AND content IS NOT NULL
+      ORDER BY timestamp DESC
+      LIMIT ?
+    ) ORDER BY timestamp
+  `;
+  return db.prepare(sql).all(chatJid, limit) as NewMessage[];
+}
+
 export function createTask(
   task: Omit<ScheduledTask, 'last_run' | 'last_result'>,
 ): void {

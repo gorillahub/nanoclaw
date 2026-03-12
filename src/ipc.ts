@@ -3,11 +3,24 @@ import path from 'path';
 
 import { CronExpressionParser } from 'cron-parser';
 
-import { DATA_DIR, IPC_POLL_INTERVAL, TIMEZONE } from './config.js';
+import {
+  ASSISTANT_NAME,
+  DATA_DIR,
+  IPC_POLL_INTERVAL,
+  TIMEZONE,
+} from './config.js';
 import { AvailableGroup } from './container-runner.js';
-import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
+import {
+  createTask,
+  deleteTask,
+  getRecentMessages,
+  getTaskById,
+  storeMessage,
+  updateTask,
+} from './db.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
+import { formatMessages } from './router.js';
 import { triggerSchedulerCheck } from './task-scheduler.js';
 import { RegisteredGroup } from './types.js';
 
@@ -165,6 +178,10 @@ export async function processTaskIpc(
     groupFolder?: string;
     chatJid?: string;
     targetJid?: string;
+    // For Google Chat message context (gchat-msg-* tasks)
+    senderName?: string;
+    senderEmail?: string;
+    messageText?: string;
     // For register_group
     jid?: string;
     name?: string;
@@ -255,11 +272,59 @@ export async function processTaskIpc(
           data.context_mode === 'group' || data.context_mode === 'isolated'
             ? data.context_mode
             : 'isolated';
+
+        // ── Google Chat conversation history injection ──
+        // For interactive Google Chat messages (gchat-msg-* tasks), store
+        // the inbound message in the messages DB and prepend recent
+        // conversation history to the prompt. This ensures Holly has
+        // context even when spawned in a fresh container.
+        let enrichedPrompt = data.prompt;
+        if (taskId.startsWith('gchat-msg-') && data.senderName) {
+          const now = new Date().toISOString();
+          const msgId = `gchat-in-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+          // Store the inbound message
+          storeMessage({
+            id: msgId,
+            chat_jid: targetJid,
+            sender: data.senderEmail || data.senderName,
+            sender_name: data.senderName,
+            content: data.messageText || '',
+            timestamp: now,
+            is_from_me: false,
+            is_bot_message: false,
+          });
+
+          // Fetch recent conversation history and prepend to prompt
+          const recentMessages = getRecentMessages(targetJid, 20);
+          if (recentMessages.length > 1) {
+            // More than just this message — there's history to include
+            // Exclude the message we just stored (it's already in the prompt)
+            const history = recentMessages.filter((m) => m.id !== msgId);
+            if (history.length > 0) {
+              const formattedHistory = formatMessages(history, TIMEZONE);
+              enrichedPrompt =
+                `<conversation-history>\n${formattedHistory}\n</conversation-history>\n\n` +
+                data.prompt;
+            }
+          }
+
+          logger.info(
+            {
+              taskId,
+              chatJid: targetJid,
+              historyCount: recentMessages.length - 1,
+              sender: data.senderName,
+            },
+            'Google Chat message stored with conversation history',
+          );
+        }
+
         createTask({
           id: taskId,
           group_folder: targetFolder,
           chat_jid: targetJid,
-          prompt: data.prompt,
+          prompt: enrichedPrompt,
           schedule_type: scheduleType,
           schedule_value: data.schedule_value,
           context_mode: contextMode,

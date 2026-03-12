@@ -145,9 +145,7 @@ export async function getValidToken(): Promise<string> {
 
   // Fast path — token still valid
   if (creds.expiresAt > Date.now() + REFRESH_BUFFER_MS) {
-    const remaining = Math.round(
-      (creds.expiresAt - Date.now()) / 1000 / 60,
-    );
+    const remaining = Math.round((creds.expiresAt - Date.now()) / 1000 / 60);
     logger.debug({ remainingMinutes: remaining }, 'OAuth token still valid');
     return creds.accessToken;
   }

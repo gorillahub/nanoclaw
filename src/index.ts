@@ -108,7 +108,10 @@ queue.setOnTaskReuse((groupJid, taskId, containerId, groupFolder) => {
     const filename = `${Date.now()}-task-${Math.random().toString(36).slice(2, 6)}.json`;
     const filepath = path.join(inputDir, filename);
     const tempPath = `${filepath}.tmp`;
-    fs.writeFileSync(tempPath, JSON.stringify({ type: 'message', text: task.prompt }));
+    fs.writeFileSync(
+      tempPath,
+      JSON.stringify({ type: 'message', text: task.prompt }),
+    );
     fs.renameSync(tempPath, filepath);
     logger.info(
       { groupJid, taskId, containerId, groupFolder },
@@ -134,7 +137,11 @@ queue.setOnTaskReuse((groupJid, taskId, containerId, groupFolder) => {
     result: '(warm reuse — result delivered via streaming)',
     error: null,
   });
-  updateTaskAfterRun(taskId, nextRun, '(warm reuse — result delivered via streaming)');
+  updateTaskAfterRun(
+    taskId,
+    nextRun,
+    '(warm reuse — result delivered via streaming)',
+  );
 });
 
 function loadState(): void {

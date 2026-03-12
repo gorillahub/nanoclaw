@@ -237,9 +237,7 @@ describe('getValidToken', () => {
   it('persists rotated refresh token', async () => {
     const creds = validCreds({ expiresAt: Date.now() + 1000 }); // nearly expired
     vi.spyOn(fs, 'readFileSync').mockReturnValue(JSON.stringify(creds));
-    const writeSpy = vi
-      .spyOn(fs, 'writeFileSync')
-      .mockImplementation(() => {});
+    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
     vi.spyOn(fs, 'renameSync').mockImplementation(() => {});
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
@@ -313,9 +311,7 @@ describe('getValidToken', () => {
   it('keeps original refresh token when server does not rotate', async () => {
     const creds = validCreds({ expiresAt: Date.now() + 1000 });
     vi.spyOn(fs, 'readFileSync').mockReturnValue(JSON.stringify(creds));
-    const writeSpy = vi
-      .spyOn(fs, 'writeFileSync')
-      .mockImplementation(() => {});
+    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
     vi.spyOn(fs, 'renameSync').mockImplementation(() => {});
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(

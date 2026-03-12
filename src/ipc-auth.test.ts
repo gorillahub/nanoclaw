@@ -4,9 +4,12 @@ import {
   _initTestDatabase,
   createTask,
   getAllTasks,
+  getRecentMessages,
   getRegisteredGroup,
   getTaskById,
   setRegisteredGroup,
+  storeChatMetadata,
+  storeMessage,
 } from './db.js';
 import { processTaskIpc, IpcDeps } from './ipc.js';
 import { RegisteredGroup } from './types.js';
@@ -34,6 +37,13 @@ const THIRD_GROUP: RegisteredGroup = {
   added_at: '2024-01-01T00:00:00.000Z',
 };
 
+const GCHAT_GROUP: RegisteredGroup = {
+  name: 'PM Agent (Google Chat)',
+  folder: 'google-chat_pm-agent',
+  trigger: 'always',
+  added_at: '2024-01-01T00:00:00.000Z',
+};
+
 let groups: Record<string, RegisteredGroup>;
 let deps: IpcDeps;
 
@@ -44,12 +54,17 @@ beforeEach(() => {
     'main@g.us': MAIN_GROUP,
     'other@g.us': OTHER_GROUP,
     'third@g.us': THIRD_GROUP,
+    'gchat:pm-agent': GCHAT_GROUP,
   };
 
   // Populate DB as well
   setRegisteredGroup('main@g.us', MAIN_GROUP);
   setRegisteredGroup('other@g.us', OTHER_GROUP);
   setRegisteredGroup('third@g.us', THIRD_GROUP);
+  setRegisteredGroup('gchat:pm-agent', GCHAT_GROUP);
+
+  // Ensure chat metadata exists for foreign key constraints
+  storeChatMetadata('gchat:pm-agent', '2024-01-01T00:00:00.000Z');
 
   deps = {
     sendMessage: async () => {},
@@ -674,5 +689,221 @@ describe('register_group success', () => {
     );
 
     expect(getRegisteredGroup('partial@g.us')).toBeUndefined();
+  });
+});
+
+// --- Google Chat conversation history ---
+
+describe('Google Chat conversation history', () => {
+  it('stores inbound Google Chat message in messages DB', async () => {
+    await processTaskIpc(
+      {
+        type: 'schedule_task',
+        taskId: 'gchat-msg-1234567890',
+        prompt:
+          'GOOGLE CHAT MESSAGE from Craig (craig@gorillahub.co.uk):\n\n"What\'s the status?"\n\nRespond to this message.',
+        schedule_type: 'once',
+        schedule_value: new Date().toISOString(),
+        targetJid: 'gchat:pm-agent',
+        senderName: 'Craig',
+        senderEmail: 'craig@gorillahub.co.uk',
+        messageText: "What's the status?",
+      },
+      'google-chat_pm-agent',
+      false,
+      deps,
+    );
+
+    const messages = getRecentMessages('gchat:pm-agent', 20);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].sender_name).toBe('Craig');
+    expect(messages[0].sender).toBe('craig@gorillahub.co.uk');
+    expect(messages[0].content).toBe("What's the status?");
+    expect(messages[0].is_from_me).toBeFalsy();
+    expect(messages[0].is_bot_message).toBeFalsy();
+  });
+
+  it('prepends conversation history to prompt when history exists', async () => {
+    // Seed some prior messages
+    storeMessage({
+      id: 'prior-1',
+      chat_jid: 'gchat:pm-agent',
+      sender: 'craig@gorillahub.co.uk',
+      sender_name: 'Craig',
+      content: 'Morning Holly',
+      timestamp: '2024-01-01T00:00:01.000Z',
+      is_from_me: false,
+      is_bot_message: false,
+    });
+
+    storeMessage({
+      id: 'prior-2',
+      chat_jid: 'gchat:pm-agent',
+      sender: 'Holly',
+      sender_name: 'Holly',
+      content: 'Good morning Craig! How can I help?',
+      timestamp: '2024-01-01T00:00:02.000Z',
+      is_from_me: true,
+      is_bot_message: true,
+    });
+
+    const originalPrompt =
+      'GOOGLE CHAT MESSAGE from Craig (craig@gorillahub.co.uk):\n\n"Any updates?"\n\nRespond to this message.';
+
+    await processTaskIpc(
+      {
+        type: 'schedule_task',
+        taskId: 'gchat-msg-1234567891',
+        prompt: originalPrompt,
+        schedule_type: 'once',
+        schedule_value: new Date().toISOString(),
+        targetJid: 'gchat:pm-agent',
+        senderName: 'Craig',
+        senderEmail: 'craig@gorillahub.co.uk',
+        messageText: 'Any updates?',
+      },
+      'google-chat_pm-agent',
+      false,
+      deps,
+    );
+
+    const task = getTaskById('gchat-msg-1234567891');
+    expect(task).toBeDefined();
+    // Prompt should start with conversation history XML
+    expect(task!.prompt).toContain('<conversation-history>');
+    expect(task!.prompt).toContain('Morning Holly');
+    expect(task!.prompt).toContain('Good morning Craig! How can I help?');
+    // Original prompt should be appended after history
+    expect(task!.prompt).toContain(originalPrompt);
+    // History block should come before the original prompt
+    const historyIdx = task!.prompt.indexOf('<conversation-history>');
+    const promptIdx = task!.prompt.indexOf(originalPrompt);
+    expect(historyIdx).toBeLessThan(promptIdx);
+  });
+
+  it('does not prepend history when there are no prior messages', async () => {
+    const originalPrompt =
+      'GOOGLE CHAT MESSAGE from Craig (craig@gorillahub.co.uk):\n\n"Hello"\n\nRespond to this message.';
+
+    await processTaskIpc(
+      {
+        type: 'schedule_task',
+        taskId: 'gchat-msg-1234567892',
+        prompt: originalPrompt,
+        schedule_type: 'once',
+        schedule_value: new Date().toISOString(),
+        targetJid: 'gchat:pm-agent',
+        senderName: 'Craig',
+        senderEmail: 'craig@gorillahub.co.uk',
+        messageText: 'Hello',
+      },
+      'google-chat_pm-agent',
+      false,
+      deps,
+    );
+
+    const task = getTaskById('gchat-msg-1234567892');
+    expect(task).toBeDefined();
+    // No history — prompt should be unchanged
+    expect(task!.prompt).toBe(originalPrompt);
+    expect(task!.prompt).not.toContain('<conversation-history>');
+  });
+
+  it('does not inject history for non-gchat tasks', async () => {
+    // Seed some messages so history would be available
+    storeMessage({
+      id: 'prior-msg',
+      chat_jid: 'gchat:pm-agent',
+      sender: 'craig@gorillahub.co.uk',
+      sender_name: 'Craig',
+      content: 'Prior message',
+      timestamp: '2024-01-01T00:00:01.000Z',
+      is_from_me: false,
+      is_bot_message: false,
+    });
+
+    const originalPrompt = 'GMS TRIGGER: some trigger';
+
+    await processTaskIpc(
+      {
+        type: 'schedule_task',
+        taskId: 'gms-approve-1234567890',
+        prompt: originalPrompt,
+        schedule_type: 'once',
+        schedule_value: new Date().toISOString(),
+        targetJid: 'gchat:pm-agent',
+      },
+      'google-chat_pm-agent',
+      false,
+      deps,
+    );
+
+    const task = getTaskById('gms-approve-1234567890');
+    expect(task).toBeDefined();
+    // Non-gchat-msg task should not have history injected
+    expect(task!.prompt).toBe(originalPrompt);
+    expect(task!.prompt).not.toContain('<conversation-history>');
+  });
+
+  it('does not inject history when senderName is missing', async () => {
+    storeMessage({
+      id: 'prior-msg-2',
+      chat_jid: 'gchat:pm-agent',
+      sender: 'craig@gorillahub.co.uk',
+      sender_name: 'Craig',
+      content: 'Prior message',
+      timestamp: '2024-01-01T00:00:01.000Z',
+      is_from_me: false,
+      is_bot_message: false,
+    });
+
+    const originalPrompt = 'GOOGLE CHAT MESSAGE:\n\n"Hello"';
+
+    await processTaskIpc(
+      {
+        type: 'schedule_task',
+        taskId: 'gchat-msg-1234567893',
+        prompt: originalPrompt,
+        schedule_type: 'once',
+        schedule_value: new Date().toISOString(),
+        targetJid: 'gchat:pm-agent',
+        // No senderName — shouldn't trigger history injection
+      },
+      'google-chat_pm-agent',
+      false,
+      deps,
+    );
+
+    const task = getTaskById('gchat-msg-1234567893');
+    expect(task).toBeDefined();
+    // Without senderName, no history injection
+    expect(task!.prompt).toBe(originalPrompt);
+  });
+
+  it('excludes the just-stored message from conversation history', async () => {
+    const originalPrompt = 'GOOGLE CHAT MESSAGE from Craig:\n\n"First message"';
+
+    await processTaskIpc(
+      {
+        type: 'schedule_task',
+        taskId: 'gchat-msg-1234567894',
+        prompt: originalPrompt,
+        schedule_type: 'once',
+        schedule_value: new Date().toISOString(),
+        targetJid: 'gchat:pm-agent',
+        senderName: 'Craig',
+        senderEmail: 'craig@gorillahub.co.uk',
+        messageText: 'First message',
+      },
+      'google-chat_pm-agent',
+      false,
+      deps,
+    );
+
+    const task = getTaskById('gchat-msg-1234567894');
+    expect(task).toBeDefined();
+    // Only one message (the one just stored) — no history to prepend
+    expect(task!.prompt).toBe(originalPrompt);
+    expect(task!.prompt).not.toContain('<conversation-history>');
   });
 });

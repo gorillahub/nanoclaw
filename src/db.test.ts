@@ -8,6 +8,7 @@ import {
   getAllRegisteredGroups,
   getMessagesSince,
   getNewMessages,
+  getRecentMessages,
   getTaskById,
   setRegisteredGroup,
   storeChatMetadata,
@@ -480,5 +481,167 @@ describe('registered group isMain', () => {
     const group = groups['group@g.us'];
     expect(group).toBeDefined();
     expect(group.isMain).toBeUndefined();
+  });
+});
+
+// --- getRecentMessages ---
+
+describe('getRecentMessages', () => {
+  it('returns recent messages including bot messages', () => {
+    storeChatMetadata('gchat:pm-agent', '2024-01-01T00:00:00.000Z');
+
+    storeMessage({
+      id: 'msg-user-1',
+      chat_jid: 'gchat:pm-agent',
+      sender: 'craig@gorillahub.co.uk',
+      sender_name: 'Craig',
+      content: 'Hello Holly',
+      timestamp: '2024-01-01T00:00:01.000Z',
+      is_from_me: false,
+      is_bot_message: false,
+    });
+
+    storeMessage({
+      id: 'msg-bot-1',
+      chat_jid: 'gchat:pm-agent',
+      sender: 'Holly',
+      sender_name: 'Holly',
+      content: 'Hello Craig! How can I help?',
+      timestamp: '2024-01-01T00:00:02.000Z',
+      is_from_me: true,
+      is_bot_message: true,
+    });
+
+    const messages = getRecentMessages('gchat:pm-agent', 20);
+    expect(messages).toHaveLength(2);
+    expect(messages[0].content).toBe('Hello Holly');
+    expect(messages[1].content).toBe('Hello Craig! How can I help?');
+  });
+
+  it('returns messages in chronological order', () => {
+    storeChatMetadata('gchat:pm-agent', '2024-01-01T00:00:00.000Z');
+
+    // Store out of order
+    storeMessage({
+      id: 'msg-3',
+      chat_jid: 'gchat:pm-agent',
+      sender: 'Craig',
+      sender_name: 'Craig',
+      content: 'Third',
+      timestamp: '2024-01-01T00:00:03.000Z',
+      is_from_me: false,
+    });
+
+    storeMessage({
+      id: 'msg-1',
+      chat_jid: 'gchat:pm-agent',
+      sender: 'Craig',
+      sender_name: 'Craig',
+      content: 'First',
+      timestamp: '2024-01-01T00:00:01.000Z',
+      is_from_me: false,
+    });
+
+    storeMessage({
+      id: 'msg-2',
+      chat_jid: 'gchat:pm-agent',
+      sender: 'Holly',
+      sender_name: 'Holly',
+      content: 'Second',
+      timestamp: '2024-01-01T00:00:02.000Z',
+      is_from_me: true,
+      is_bot_message: true,
+    });
+
+    const messages = getRecentMessages('gchat:pm-agent', 20);
+    expect(messages).toHaveLength(3);
+    expect(messages[0].content).toBe('First');
+    expect(messages[1].content).toBe('Second');
+    expect(messages[2].content).toBe('Third');
+  });
+
+  it('respects the limit parameter', () => {
+    storeChatMetadata('gchat:pm-agent', '2024-01-01T00:00:00.000Z');
+
+    for (let i = 1; i <= 5; i++) {
+      storeMessage({
+        id: `msg-${i}`,
+        chat_jid: 'gchat:pm-agent',
+        sender: 'Craig',
+        sender_name: 'Craig',
+        content: `Message ${i}`,
+        timestamp: `2024-01-01T00:00:0${i}.000Z`,
+        is_from_me: false,
+      });
+    }
+
+    const messages = getRecentMessages('gchat:pm-agent', 3);
+    expect(messages).toHaveLength(3);
+    // Should return the MOST RECENT 3, in chronological order
+    expect(messages[0].content).toBe('Message 3');
+    expect(messages[1].content).toBe('Message 4');
+    expect(messages[2].content).toBe('Message 5');
+  });
+
+  it('excludes empty content messages', () => {
+    storeChatMetadata('gchat:pm-agent', '2024-01-01T00:00:00.000Z');
+
+    storeMessage({
+      id: 'msg-empty',
+      chat_jid: 'gchat:pm-agent',
+      sender: 'Craig',
+      sender_name: 'Craig',
+      content: '',
+      timestamp: '2024-01-01T00:00:01.000Z',
+      is_from_me: false,
+    });
+
+    storeMessage({
+      id: 'msg-real',
+      chat_jid: 'gchat:pm-agent',
+      sender: 'Craig',
+      sender_name: 'Craig',
+      content: 'Real message',
+      timestamp: '2024-01-01T00:00:02.000Z',
+      is_from_me: false,
+    });
+
+    const messages = getRecentMessages('gchat:pm-agent', 20);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].content).toBe('Real message');
+  });
+
+  it('only returns messages for the specified chat_jid', () => {
+    storeChatMetadata('gchat:pm-agent', '2024-01-01T00:00:00.000Z');
+    storeChatMetadata('other@g.us', '2024-01-01T00:00:00.000Z');
+
+    storeMessage({
+      id: 'msg-gchat',
+      chat_jid: 'gchat:pm-agent',
+      sender: 'Craig',
+      sender_name: 'Craig',
+      content: 'Google Chat message',
+      timestamp: '2024-01-01T00:00:01.000Z',
+      is_from_me: false,
+    });
+
+    storeMessage({
+      id: 'msg-wa',
+      chat_jid: 'other@g.us',
+      sender: 'Craig',
+      sender_name: 'Craig',
+      content: 'WhatsApp message',
+      timestamp: '2024-01-01T00:00:01.000Z',
+      is_from_me: false,
+    });
+
+    const messages = getRecentMessages('gchat:pm-agent', 20);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].content).toBe('Google Chat message');
+  });
+
+  it('returns empty array when no messages exist', () => {
+    const messages = getRecentMessages('gchat:nonexistent', 20);
+    expect(messages).toHaveLength(0);
   });
 });

@@ -18,6 +18,7 @@ import {
   getDueTasks,
   getTaskById,
   logTaskRun,
+  storeMessage,
   updateTask,
   updateTaskAfterRun,
 } from './db.js';
@@ -211,6 +212,30 @@ async function runTask(
           result = streamedOutput.result;
           // Forward result to user (sendMessage handles formatting)
           await deps.sendMessage(task.chat_jid, streamedOutput.result);
+
+          // Store Holly's response in messages DB for conversation history.
+          // This ensures Google Chat (and other channels) have a record of
+          // what Holly said, so subsequent messages include full context.
+          if (task.id.startsWith('gchat-msg-')) {
+            try {
+              storeMessage({
+                id: `gchat-out-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                chat_jid: task.chat_jid,
+                sender: ASSISTANT_NAME,
+                sender_name: ASSISTANT_NAME,
+                content: streamedOutput.result,
+                timestamp: new Date().toISOString(),
+                is_from_me: true,
+                is_bot_message: true,
+              });
+            } catch (err) {
+              logger.warn(
+                { taskId: task.id, err },
+                'Failed to store outbound message for conversation history',
+              );
+            }
+          }
+
           scheduleClose();
         }
         if (streamedOutput.status === 'success') {
