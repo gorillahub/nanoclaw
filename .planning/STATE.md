@@ -109,6 +109,11 @@
   - PR #5: MAX_WARM_PER_GROUP capped to 1 — shared IPC input directory caused race condition where multiple warm containers picked up each other's messages
   - PR #6: Task queue replaces single-entry containerCurrentTask Map — FIFO queue ensures streaming callback reads the correct task when multiple tasks are piped sequentially
   - PR #7: Thread isolation directive — warm containers retain Claude session memory; new-thread-message framing tells Claude to ignore prior session context from other threads
-  - Root causes: (1) sendMessage had no threadId param, (2) shared IPC dir race, (3) containerCurrentTask overwrite race, (4) Claude session memory bleed across threads
-  - 428 tests passing
-  - Known limitation: MAX_WARM_PER_GROUP=1 means sequential processing. Per-container IPC directories needed to restore parallelism (backlog item).
+   - Root causes: (1) sendMessage had no threadId param, (2) shared IPC dir race, (3) containerCurrentTask overwrite race, (4) Claude session memory bleed across threads
+   - 428 tests passing
+   - Known limitation: MAX_WARM_PER_GROUP=1 means sequential processing. Per-container IPC directories needed to restore parallelism (backlog item).
+- **[SILENT] message suppression (2026-03-12, PR #8):**
+   - Holly's `[SILENT]`-prefixed messages (internal actions like Airtable writes) were leaking to Google Chat — no filtering existed anywhere in NanoClaw
+   - Added `[SILENT]` detection to `formatOutbound()` in `router.ts`
+   - Unified all three outbound paths to use `formatOutbound()`: user-message streaming, scheduler, and IPC send_message (which previously had NO filtering)
+   - 432 tests passing

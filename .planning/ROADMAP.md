@@ -91,4 +91,5 @@ Plans:
 - Google Chat conversation history — inbound/outbound messages stored, last 20 prepended to prompt
 - **Google Chat thread isolation** — replies routed to correct thread, no cross-thread context pollution (PRs #3–#7)
 - MAX_WARM_PER_GROUP=1 (shared IPC dir race prevention). Per-container IPC dirs needed for parallel warm reuse.
-- 428 tests passing
+- **[SILENT] message suppression (PR #8)** — `[SILENT]`-prefixed agent messages suppressed from all channels. All three outbound paths now use `formatOutbound()`.
+- 432 tests passing
