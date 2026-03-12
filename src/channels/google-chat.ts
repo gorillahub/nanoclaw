@@ -19,6 +19,10 @@ const MAX_MESSAGE_LENGTH = 4096;
 // Written by trigger-writer.mjs, read by this adapter.
 const SPACE_MAP_PATH = path.join(DATA_DIR, 'google-chat-spaces.json');
 
+// File where trigger-writer persists the most recent thread name per JID.
+// Written by trigger-writer.mjs on each inbound message. Used to reply in-thread.
+const THREAD_MAP_PATH = path.join(DATA_DIR, 'google-chat-threads.json');
+
 export class GoogleChatChannel implements Channel {
   name = 'google-chat';
 
@@ -75,14 +79,24 @@ export class GoogleChatChannel implements Channel {
       return;
     }
 
+    // Resolve thread name for in-thread replies (best-effort — falls back to new message)
+    const threadName = this.resolveThread(jid);
+
     // Split long messages
     const chunks = this.splitMessage(text);
 
     for (const chunk of chunks) {
       try {
+        const requestBody: chat_v1.Schema$Message = { text: chunk };
+        if (threadName) {
+          requestBody.thread = { name: threadName };
+        }
         await this.chatClient.spaces.messages.create({
           parent: spaceName,
-          requestBody: { text: chunk },
+          messageReplyOption: threadName
+            ? 'REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD'
+            : undefined,
+          requestBody,
         });
         logger.info(
           { space: spaceName, length: chunk.length },
@@ -122,6 +136,22 @@ export class GoogleChatChannel implements Channel {
       return data[jid] || '';
     } catch (err) {
       logger.error({ err }, 'Failed to read Google Chat space map');
+      return '';
+    }
+  }
+
+  /**
+   * Resolve the most recent thread name for a JID, for in-thread replies.
+   * Reads the thread map file written by trigger-writer on each inbound message.
+   * Returns empty string if not available (reply will create a new message instead).
+   */
+  private resolveThread(jid: string): string {
+    try {
+      if (!fs.existsSync(THREAD_MAP_PATH)) return '';
+      const data = JSON.parse(fs.readFileSync(THREAD_MAP_PATH, 'utf-8'));
+      return data[jid] || '';
+    } catch (err) {
+      logger.error({ err }, 'Failed to read Google Chat thread map');
       return '';
     }
   }
