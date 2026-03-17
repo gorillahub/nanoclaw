@@ -27,6 +27,55 @@ import { resolveGroupFolderPath } from './group-folder.js';
 import { logger } from './logger.js';
 import { RegisteredGroup, ScheduledTask } from './types.js';
 
+// ── Progress monitor for interactive tasks ───────────────────────────
+// When an interactive Google Chat message (gchat-msg-*) is processing,
+// the host sends periodic "still working" messages if the agent hasn't
+// produced output for a while. This prevents Craig from staring at
+// silence while Holly is deep in tool calls.
+
+const PROGRESS_INTERVALS = [
+  { delayMs: 30_000, message: 'Still working on this...' },
+  {
+    delayMs: 90_000,
+    message: 'Taking a bit longer than usual — still processing.',
+  },
+  { delayMs: 180_000, message: 'Still here, working through it.' },
+  { delayMs: 300_000, message: 'Complex request — still going.' },
+];
+
+/**
+ * Start escalating progress timers for an interactive task.
+ * Returns a cleanup function that cancels all pending timers.
+ */
+function startProgressMonitor(
+  sendMessage: (jid: string, text: string, threadId?: string) => Promise<void>,
+  chatJid: string,
+  threadId?: string,
+): () => void {
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  let cancelled = false;
+
+  for (const { delayMs, message } of PROGRESS_INTERVALS) {
+    const timer = setTimeout(async () => {
+      if (cancelled) return;
+      try {
+        await sendMessage(chatJid, message, threadId);
+        logger.debug({ chatJid, delayMs, message }, 'Sent progress update');
+      } catch (err) {
+        logger.warn({ chatJid, err }, 'Failed to send progress update');
+      }
+    }, delayMs);
+    timers.push(timer);
+  }
+
+  return () => {
+    cancelled = true;
+    for (const timer of timers) {
+      clearTimeout(timer);
+    }
+  };
+}
+
 // ── Warm-reuse task tracking ─────────────────────────────────────────
 // When a warm container is reused for a new task, the streaming callback
 // from the original runTask still runs. This queue lets the callback look
@@ -209,6 +258,18 @@ async function runTask(
   let result: string | null = null;
   let error: string | null = null;
 
+  // Start progress monitor for interactive Google Chat messages.
+  // Sends "still working" messages at escalating intervals if the agent
+  // hasn't produced output. Cancelled as soon as the first result arrives.
+  let cancelProgress: (() => void) | null = null;
+  if (task.id.startsWith('gchat-msg-')) {
+    cancelProgress = startProgressMonitor(
+      deps.sendMessage,
+      task.chat_jid,
+      task.thread_id ?? undefined,
+    );
+  }
+
   // Register this task as the current one for this container.
   // When warm-reuse pipes a new task, setContainerCurrentTask pushes
   // onto the queue. The streaming callback reads the HEAD of the queue
@@ -275,6 +336,11 @@ async function runTask(
 
         if (streamedOutput.result) {
           result = streamedOutput.result;
+          // Cancel progress monitor — real output has arrived.
+          if (cancelProgress) {
+            cancelProgress();
+            cancelProgress = null;
+          }
           // Forward result to user (sendMessage handles formatting).
           // Pass thread_id so Google Chat replies go to the correct thread.
           await deps.sendMessage(
@@ -324,6 +390,10 @@ async function runTask(
     );
 
     if (closeTimer) clearTimeout(closeTimer);
+    if (cancelProgress) {
+      cancelProgress();
+      cancelProgress = null;
+    }
 
     if (output.status === 'error') {
       error = output.error || 'Unknown error';
@@ -338,6 +408,10 @@ async function runTask(
     );
   } catch (err) {
     if (closeTimer) clearTimeout(closeTimer);
+    if (cancelProgress) {
+      cancelProgress();
+      cancelProgress = null;
+    }
     error = err instanceof Error ? err.message : String(err);
     logger.error({ taskId: task.id, error }, 'Task failed');
   }
