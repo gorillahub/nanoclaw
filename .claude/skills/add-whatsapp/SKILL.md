@@ -40,41 +40,56 @@ Otherwise (macOS, desktop Linux, or WSL) → AskUserQuestion: How do you want to
 
 If they chose pairing code:
 
-AskUserQuestion: What is your phone number? (Include country code without +, e.g., 1234567890)
+AskUserQuestion: What is your phone number? (Digits only — country code followed by your 10-digit number, no + prefix, spaces, or dashes. Example: 14155551234 where 1 is the US country code and 4155551234 is the phone number.)
 
-## Phase 2: Verify Code
+## Phase 2: Apply Code Changes
 
-Apply the skill to install the WhatsApp channel code and dependencies:
+Check if `src/channels/whatsapp.ts` already exists. If it does, skip to Phase 3 (Authentication).
+
+### Ensure channel remote
 
 ```bash
-npx tsx scripts/apply-skill.ts .claude/skills/add-whatsapp
+git remote -v
 ```
 
-Verify the code was placed correctly:
+If `whatsapp` is missing, add it:
 
 ```bash
-test -f src/channels/whatsapp.ts && echo "WhatsApp channel code present" || echo "ERROR: WhatsApp channel code missing — re-run skill apply"
+git remote add whatsapp https://github.com/qwibitai/nanoclaw-whatsapp.git
 ```
 
-### Verify dependencies
+### Merge the skill branch
 
 ```bash
-node -e "require('@whiskeysockets/baileys')" 2>/dev/null && echo "Baileys installed" || echo "Installing Baileys..."
+git fetch whatsapp main
+git merge whatsapp/main || {
+  git checkout --theirs package-lock.json
+  git add package-lock.json
+  git merge --continue
+}
 ```
 
-If not installed:
+This merges in:
+- `src/channels/whatsapp.ts` (WhatsAppChannel class with self-registration via `registerChannel`)
+- `src/channels/whatsapp.test.ts` (41 unit tests)
+- `src/whatsapp-auth.ts` (standalone WhatsApp authentication script)
+- `setup/whatsapp-auth.ts` (WhatsApp auth setup step)
+- `import './whatsapp.js'` appended to the channel barrel file `src/channels/index.ts`
+- `'whatsapp-auth'` step added to `setup/index.ts`
+- `@whiskeysockets/baileys`, `qrcode`, `qrcode-terminal` npm dependencies in `package.json`
+- `ASSISTANT_HAS_OWN_NUMBER` in `.env.example`
+
+If the merge reports conflicts, resolve them by reading the conflicted files and understanding the intent of both sides.
+
+### Validate code changes
 
 ```bash
-npm install @whiskeysockets/baileys qrcode qrcode-terminal
-```
-
-### Validate build
-
-```bash
+npm install
 npm run build
+npx vitest run src/channels/whatsapp.test.ts
 ```
 
-Build must be clean before proceeding.
+All tests must pass and build must be clean before proceeding.
 
 ## Phase 3: Authentication
 
@@ -293,7 +308,7 @@ rm -rf store/auth/ && npx tsx src/whatsapp-auth.ts --pairing-code --phone <phone
 ```
 
 Enter the code **immediately** when it appears. Also ensure:
-1. Phone number includes country code without `+` (e.g., `1234567890`)
+1. Phone number is digits only — country code + number, no `+` prefix (e.g., `14155551234` where `1` is country code, `4155551234` is the number)
 2. Phone has internet access
 3. WhatsApp is updated to the latest version
 
