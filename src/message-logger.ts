@@ -10,10 +10,10 @@ export interface MessageLogEntry {
   thread_id: string | null;
   sender: string;
   sender_name: string;
-  channel: string;          // 'whatsapp' | 'google-chat'
+  channel: string; // 'whatsapp' | 'google-chat'
   direction: 'inbound' | 'outbound';
   content: string;
-  timestamp: string;        // ISO 8601
+  timestamp: string; // ISO 8601
 }
 
 export class MessageLogger {
@@ -68,7 +68,10 @@ export class MessageLogger {
         entry.timestamp,
       );
     } catch (err) {
-      logger.warn({ err, messageId: entry.id }, 'MessageLogger: failed to log message');
+      logger.warn(
+        { err, messageId: entry.id },
+        'MessageLogger: failed to log message',
+      );
     }
   }
 

@@ -29,7 +29,11 @@ describe('MessageLogger', () => {
   afterEach(() => {
     for (const p of dbPaths) {
       for (const suffix of ['', '-wal', '-shm']) {
-        try { fs.unlinkSync(p + suffix); } catch { /* ignore */ }
+        try {
+          fs.unlinkSync(p + suffix);
+        } catch {
+          /* ignore */
+        }
       }
     }
     dbPaths.length = 0;
@@ -51,7 +55,9 @@ describe('MessageLogger', () => {
     // Re-open to query
     import('better-sqlite3').then(({ default: Database }) => {
       const db = new Database(dbPath, { readonly: true });
-      const row = db.prepare('SELECT * FROM messages WHERE id = ?').get(entry.id) as Record<string, unknown> | undefined;
+      const row = db
+        .prepare('SELECT * FROM messages WHERE id = ?')
+        .get(entry.id) as Record<string, unknown> | undefined;
       db.close();
       expect(row).toBeDefined();
       expect(row!.id).toBe(entry.id);
@@ -63,7 +69,9 @@ describe('MessageLogger', () => {
     // Use internal access via a read query — we test via the DB directly
     const Database = require('better-sqlite3');
     const db = new Database(dbPath, { readonly: true });
-    const row = db.prepare('SELECT * FROM messages WHERE id = ?').get(entry.id) as Record<string, unknown> | undefined;
+    const row = db
+      .prepare('SELECT * FROM messages WHERE id = ?')
+      .get(entry.id) as Record<string, unknown> | undefined;
     db.close();
     logger2.close();
 
@@ -90,7 +98,9 @@ describe('MessageLogger', () => {
 
     const Database = require('better-sqlite3');
     const db = new Database(dbPath, { readonly: true });
-    const row = db.prepare('SELECT * FROM messages WHERE id = ?').get(entry.id) as Record<string, unknown>;
+    const row = db
+      .prepare('SELECT * FROM messages WHERE id = ?')
+      .get(entry.id) as Record<string, unknown>;
     db.close();
 
     expect(row.id).toBe('msg-ingest-02');
@@ -107,7 +117,10 @@ describe('MessageLogger', () => {
   // Test 3 (INGEST-03): Rows persist after close() and re-open
   it('INGEST-03: rows persist after close and re-open on same DB path', () => {
     const { logger, dbPath } = openLogger();
-    const entry = makeEntry({ id: 'persist-test-001', content: 'Persisted message' });
+    const entry = makeEntry({
+      id: 'persist-test-001',
+      content: 'Persisted message',
+    });
     logger.logMessage(entry);
     logger.close();
 
@@ -115,7 +128,9 @@ describe('MessageLogger', () => {
     const logger2 = new MessageLogger(dbPath);
     const Database = require('better-sqlite3');
     const db = new Database(dbPath, { readonly: true });
-    const row = db.prepare('SELECT content FROM messages WHERE id = ?').get(entry.id) as Record<string, unknown> | undefined;
+    const row = db
+      .prepare('SELECT content FROM messages WHERE id = ?')
+      .get(entry.id) as Record<string, unknown> | undefined;
     db.close();
     logger2.close();
 
@@ -127,14 +142,35 @@ describe('MessageLogger', () => {
   it('INGEST-04: query returns messages from multiple distinct chat_jids', () => {
     const { logger, dbPath } = openLogger();
 
-    logger.logMessage(makeEntry({ id: 'multi-1', chat_jid: 'spaces/THREAD1', content: 'From thread 1' }));
-    logger.logMessage(makeEntry({ id: 'multi-2', chat_jid: '447700000001@s.whatsapp.net', channel: 'whatsapp', content: 'From WhatsApp' }));
-    logger.logMessage(makeEntry({ id: 'multi-3', chat_jid: 'spaces/THREAD2', content: 'From thread 2' }));
+    logger.logMessage(
+      makeEntry({
+        id: 'multi-1',
+        chat_jid: 'spaces/THREAD1',
+        content: 'From thread 1',
+      }),
+    );
+    logger.logMessage(
+      makeEntry({
+        id: 'multi-2',
+        chat_jid: '447700000001@s.whatsapp.net',
+        channel: 'whatsapp',
+        content: 'From WhatsApp',
+      }),
+    );
+    logger.logMessage(
+      makeEntry({
+        id: 'multi-3',
+        chat_jid: 'spaces/THREAD2',
+        content: 'From thread 2',
+      }),
+    );
     logger.close();
 
     const Database = require('better-sqlite3');
     const db = new Database(dbPath, { readonly: true });
-    const rows = db.prepare('SELECT DISTINCT chat_jid FROM messages').all() as Array<{ chat_jid: string }>;
+    const rows = db
+      .prepare('SELECT DISTINCT chat_jid FROM messages')
+      .all() as Array<{ chat_jid: string }>;
     db.close();
 
     expect(rows.length).toBeGreaterThanOrEqual(3);
@@ -167,24 +203,44 @@ describe('MessageLogger', () => {
     const db = new Database(dbPath);
 
     // Verify WAL mode
-    const journalMode = (db.pragma('journal_mode') as Array<{ journal_mode: string }>)[0]?.journal_mode;
+    const journalMode = (
+      db.pragma('journal_mode') as Array<{ journal_mode: string }>
+    )[0]?.journal_mode;
     expect(journalMode).toBe('wal');
 
     // Verify table exists with correct schema
-    const tableInfo = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'").get() as { sql: string } | undefined;
+    const tableInfo = db
+      .prepare(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'",
+      )
+      .get() as { sql: string } | undefined;
     expect(tableInfo).toBeDefined();
     expect(tableInfo!.sql).toContain('direction');
-    expect(tableInfo!.sql.toLowerCase()).toContain("check");
+    expect(tableInfo!.sql.toLowerCase()).toContain('check');
 
     // Verify CHECK constraint works — invalid direction should throw
     expect(() => {
       db.prepare(
-        "INSERT INTO messages (id, chat_jid, thread_id, sender, sender_name, channel, direction, content, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      ).run('bad-dir-id', 'spaces/X', null, 'test', 'test', 'google-chat', 'invalid-direction', 'content', new Date().toISOString());
+        'INSERT INTO messages (id, chat_jid, thread_id, sender, sender_name, channel, direction, content, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      ).run(
+        'bad-dir-id',
+        'spaces/X',
+        null,
+        'test',
+        'test',
+        'google-chat',
+        'invalid-direction',
+        'content',
+        new Date().toISOString(),
+      );
     }).toThrow();
 
     // Verify indexes exist
-    const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='messages'").all() as Array<{ name: string }>;
+    const indexes = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='messages'",
+      )
+      .all() as Array<{ name: string }>;
     const indexNames = indexes.map((i) => i.name);
     expect(indexNames).toContain('idx_messages_timestamp');
     expect(indexNames).toContain('idx_messages_chat_jid');

@@ -40,8 +40,7 @@ export const DATA_DIR = path.resolve(PROJECT_ROOT, 'data');
 // MEMORY_DB_PATH — path to the persistent memory SQLite database.
 // Lives under data/memory/ which is bind-mounted into containers at /workspace/extra/memory/.
 export const MEMORY_DB_PATH =
-  process.env.MEMORY_DB_PATH ??
-  path.join(DATA_DIR, 'memory', 'memory.db');
+  process.env.MEMORY_DB_PATH ?? path.join(DATA_DIR, 'memory', 'memory.db');
 
 export const CONTAINER_IMAGE =
   process.env.CONTAINER_IMAGE || 'nanoclaw-agent:latest';

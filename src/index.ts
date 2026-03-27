@@ -625,9 +625,10 @@ async function main(): Promise<void> {
       }
       storeMessage(msg);
       // Also log to persistent memory.db for cross-session search (Phase 19).
-      const channel = chatJid.startsWith('gchat:') || chatJid.startsWith('spaces/')
-        ? 'google-chat'
-        : 'whatsapp';
+      const channel =
+        chatJid.startsWith('gchat:') || chatJid.startsWith('spaces/')
+          ? 'google-chat'
+          : 'whatsapp';
       messageLogger.logMessage({
         id: msg.id,
         chat_jid: msg.chat_jid,
