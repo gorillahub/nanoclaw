@@ -3,38 +3,40 @@
 ## Project Reference
 
 - **Core value:** Messages never blocked by running containers
-- **Current focus:** Google Chat thread isolation complete 2026-03-12
+- **Current focus:** WhatsApp voice note sending infrastructure
 - **Airtable record:** `recFADjzpnBY8NHh4`
 
 ## Current Position
 
-- **Phase:** All complete (3 phases)
-- **Plan:** All 7 plans across 3 phases complete
-- **Status:** Deployed
-- **Progress:** ██████████ 100%
+- **Phase:** 04-whatsapp-voice-notes (Plan 1 of 2 complete)
+- **Plan:** 04-01 complete, 04-02 next
+- **Status:** In Progress
+- **Progress:** █████████░ 90%
 
 ## Performance Metrics
 
-| Metric | Value |
-|--------|-------|
-| Phases total | 3 |
-| Phases complete | 3 |
-| Plans total | 7 |
-| Plans complete | 7 |
-| Tasks total | 18 |
-| Tasks complete | 18 |
+| Metric          | Value |
+| --------------- | ----- |
+| Phases total    | 4     |
+| Phases complete | 3     |
+| Plans total     | 9     |
+| Plans complete  | 8     |
+| Tasks total     | 20    |
+| Tasks complete  | 20    |
 
 | Phase | Plan | Duration | Tasks | Files |
-|-------|------|----------|-------|-------|
-| 01 | 01 | 308s | 2 | 1 |
-| 01 | 02 | 268s | 2 | 3 |
-| 01 | 03 | 128s | 1 | 1 |
-| 02 | 01 | 188s | 2 | 4 |
-| 02 | 02 | 170s | 1 | 4 |
+| ----- | ---- | -------- | ----- | ----- |
+| 01    | 01   | 308s     | 2     | 1     |
+| 01    | 02   | 268s     | 2     | 3     |
+| 01    | 03   | 128s     | 1     | 1     |
+| 02    | 01   | 188s     | 2     | 4     |
+| 02    | 02   | 170s     | 1     | 4     |
+| 04    | 01   | 151s     | 2     | 7     |
 
 ## Accumulated Context
 
 ### Key Decisions
+
 - Callbacks on GroupQueue (not direct import) — keeps GroupQueue decoupled from session-awareness
 - onContainerStart fires in registerProcess (not runForGroup) — both containerId and groupFolder known
 - onContainerExit fires before containers.delete in finally — slot data still available
@@ -51,8 +53,12 @@
 - containerId added to ContainerInput interface — container needs it to filter self from active sessions
 - Session awareness read once on startup, not per query — point-in-time snapshot is sufficient
 - XML <active-sessions> block prepended to prompt — matches existing Claude context block convention
+- No retry/queuing for audio — large and ephemeral, caller can retry (unlike text messages)
+- Same authorisation rules for send_audio as send_message — isMain or same group folder
+- Audio files cleaned up immediately after sending to avoid disk accumulation
 
 ### Technical Notes
+
 - `session-awareness.ts` writes `data/ipc/{group}/active_sessions.json` with atomic temp+rename
 - GroupQueue has `onContainerStartFn` and `onContainerExitFn` optional callbacks
 - index.ts wires callbacks at module level after `const queue = new GroupQueue()`
@@ -78,20 +84,34 @@
 - runAgent() and runTask() both pass containerId in ContainerInput
 
 ### Blockers
+
 - (none)
 
 ### TODOs
+
 - (none)
 
 ## Session Continuity
 
 ### Last Session
+
 - 2026-03-12T15:30:00Z
 
+### Stopped At
+
+- Completed 04-01-PLAN.md (WhatsApp voice note sending infrastructure)
+
 ### Handover Notes
+
 - Phase 01 complete: All 3 plans done (01-01, 01-02, 01-03)
 - Phase 02 complete: All 2 plans done (02-01, 02-02)
 - Phase 03 complete: All 2 plans done (03-01, 03-02) — OAuth auto-refresh
+- **Phase 04 Plan 01 complete (2026-03-28):** Host-side voice note sending infrastructure
+  - Channel interface extended with optional sendAudio method
+  - WhatsApp implementation uses Baileys ptt:true for inline voice notes
+  - IPC handler for send_audio with same auth as text messages
+  - Audio files staged in data/ipc/{group}/media/ and cleaned after send
+  - 352 tests passing, clean build
 - **Google Chat context loss bug FIXED** — Holly now remembers conversation history
   - Root cause: every Google Chat message spawned a fresh container with zero history
   - Fix: store inbound/outbound messages in DB, prepend last 20 as <conversation-history> XML
@@ -109,12 +129,12 @@
   - PR #5: MAX_WARM_PER_GROUP capped to 1 — shared IPC input directory caused race condition where multiple warm containers picked up each other's messages
   - PR #6: Task queue replaces single-entry containerCurrentTask Map — FIFO queue ensures streaming callback reads the correct task when multiple tasks are piped sequentially
   - PR #7: Thread isolation directive — warm containers retain Claude session memory; new-thread-message framing tells Claude to ignore prior session context from other threads
-   - Root causes: (1) sendMessage had no threadId param, (2) shared IPC dir race, (3) containerCurrentTask overwrite race, (4) Claude session memory bleed across threads
-   - 428 tests passing
-   - Known limitation: MAX_WARM_PER_GROUP=1 means sequential processing. Per-container IPC directories needed to restore parallelism (backlog item).
+  - Root causes: (1) sendMessage had no threadId param, (2) shared IPC dir race, (3) containerCurrentTask overwrite race, (4) Claude session memory bleed across threads
+  - 428 tests passing
+  - Known limitation: MAX_WARM_PER_GROUP=1 means sequential processing. Per-container IPC directories needed to restore parallelism (backlog item).
 - **[SILENT] message suppression (2026-03-12, PR #8):**
-   - Holly's `[SILENT]`-prefixed messages (internal actions like Airtable writes) were leaking to Google Chat — no filtering existed anywhere in NanoClaw
-   - Added `[SILENT]` detection to `formatOutbound()` in `router.ts`
-   - Unified all three outbound paths to use `formatOutbound()`: user-message streaming, scheduler, and IPC send_message (which previously had NO filtering)
-   - 432 tests passing
+  - Holly's `[SILENT]`-prefixed messages (internal actions like Airtable writes) were leaking to Google Chat — no filtering existed anywhere in NanoClaw
+  - Added `[SILENT]` detection to `formatOutbound()` in `router.ts`
+  - Unified all three outbound paths to use `formatOutbound()`: user-message streaming, scheduler, and IPC send_message (which previously had NO filtering)
+  - 432 tests passing
 - **PM Agent MCP tools deployed (2026-03-12):** `create_goal` and `create_risk` tools were built in gos-pm-agent but the compiled `dist/` in VPS group folders was stale. Rebuilt and deployed to both google-chat and whatsapp group folders. Holly verified working — created R026 and G018 via Google Chat.
