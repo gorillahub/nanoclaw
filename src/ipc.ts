@@ -28,6 +28,7 @@ import { RegisteredGroup } from './types.js';
 
 export interface IpcDeps {
   sendMessage: (jid: string, text: string, threadId?: string) => Promise<void>;
+  sendAudio: (jid: string, audio: Buffer, mimetype?: string) => Promise<void>;
   registeredGroups: () => Record<string, RegisteredGroup>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
   syncGroups: (force: boolean) => Promise<void>;
@@ -106,6 +107,57 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   logger.warn(
                     { chatJid: data.chatJid, sourceGroup },
                     'Unauthorized IPC message attempt blocked',
+                  );
+                }
+              } else if (
+                data.type === 'send_audio' &&
+                data.chatJid &&
+                data.filePath
+              ) {
+                // Authorization: same rules as text messages
+                const targetGroup = registeredGroups[data.chatJid];
+                if (
+                  isMain ||
+                  (targetGroup && targetGroup.folder === sourceGroup)
+                ) {
+                  const audioFilePath = path.join(
+                    ipcBaseDir,
+                    sourceGroup,
+                    'media',
+                    data.filePath,
+                  );
+                  if (fs.existsSync(audioFilePath)) {
+                    const audioBuffer = fs.readFileSync(audioFilePath);
+                    await deps.sendAudio(
+                      data.chatJid,
+                      audioBuffer,
+                      data.mimetype,
+                    );
+                    // Clean up the audio file after sending
+                    fs.unlinkSync(audioFilePath);
+                    logger.info(
+                      {
+                        chatJid: data.chatJid,
+                        sourceGroup,
+                        file: data.filePath,
+                        size: audioBuffer.length,
+                      },
+                      'IPC audio sent',
+                    );
+                  } else {
+                    logger.warn(
+                      {
+                        chatJid: data.chatJid,
+                        sourceGroup,
+                        file: data.filePath,
+                      },
+                      'IPC audio file not found',
+                    );
+                  }
+                } else {
+                  logger.warn(
+                    { chatJid: data.chatJid, sourceGroup },
+                    'Unauthorized IPC audio attempt blocked',
                   );
                 }
               }

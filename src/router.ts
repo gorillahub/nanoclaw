@@ -46,6 +46,19 @@ export function routeOutbound(
   return channel.sendMessage(jid, text);
 }
 
+export function routeOutboundAudio(
+  channels: Channel[],
+  jid: string,
+  audio: Buffer,
+  mimetype?: string,
+): Promise<void> {
+  const channel = channels.find((c) => c.ownsJid(jid) && c.isConnected());
+  if (!channel) throw new Error(`No channel for JID: ${jid}`);
+  if (!channel.sendAudio)
+    throw new Error(`Channel ${channel.name} does not support audio`);
+  return channel.sendAudio(jid, audio, mimetype);
+}
+
 export function findChannel(
   channels: Channel[],
   jid: string,

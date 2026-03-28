@@ -58,7 +58,12 @@ import {
   writeActiveSessionsFile,
 } from './session-awareness.js';
 import { startIpcWatcher } from './ipc.js';
-import { findChannel, formatMessages, formatOutbound } from './router.js';
+import {
+  findChannel,
+  formatMessages,
+  formatOutbound,
+  routeOutboundAudio,
+} from './router.js';
 import {
   restoreRemoteControl,
   startRemoteControl,
@@ -866,6 +871,8 @@ async function main(): Promise<void> {
       if (!text) return Promise.resolve();
       return channel.sendMessage(jid, text, threadId);
     },
+    sendAudio: (jid, audio, mimetype) =>
+      routeOutboundAudio(channels, jid, audio, mimetype),
     registeredGroups: () => registeredGroups,
     registerGroup,
     syncGroups: async (force: boolean) => {
