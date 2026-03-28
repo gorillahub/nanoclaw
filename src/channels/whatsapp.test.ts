@@ -866,6 +866,54 @@ describe('WhatsAppChannel', () => {
     });
   });
 
+  // --- sendAudio ---
+
+  describe('sendAudio', () => {
+    it('sends audio with ptt flag', async () => {
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+
+      await connectChannel(channel);
+
+      const audioBuffer = Buffer.from('fake-ogg-audio-data');
+      await channel.sendAudio('test@g.us', audioBuffer);
+
+      expect(fakeSocket.sendMessage).toHaveBeenCalledWith('test@g.us', {
+        audio: audioBuffer,
+        ptt: true,
+        mimetype: 'audio/ogg; codecs=opus',
+      });
+    });
+
+    it('uses custom mimetype when provided', async () => {
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+
+      await connectChannel(channel);
+
+      const audioBuffer = Buffer.from('fake-mp4-audio-data');
+      await channel.sendAudio('test@g.us', audioBuffer, 'audio/mp4');
+
+      expect(fakeSocket.sendMessage).toHaveBeenCalledWith('test@g.us', {
+        audio: audioBuffer,
+        ptt: true,
+        mimetype: 'audio/mp4',
+      });
+    });
+
+    it('logs warning when disconnected', async () => {
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+
+      // Don't connect — channel starts disconnected
+      const audioBuffer = Buffer.from('fake-audio-data');
+      await channel.sendAudio('test@g.us', audioBuffer);
+
+      // Should not attempt to send
+      expect(fakeSocket.sendMessage).not.toHaveBeenCalled();
+    });
+  });
+
   // --- JID ownership ---
 
   describe('ownsJid', () => {

@@ -452,6 +452,47 @@ describe('IPC message authorization', () => {
   });
 });
 
+// --- send_audio IPC authorization ---
+// Tests the authorization pattern for send_audio from startIpcWatcher (ipc.ts).
+// send_audio uses the same auth rules as text messages:
+// isMain || (targetGroup && targetGroup.folder === sourceGroup)
+
+describe('send_audio IPC authorization', () => {
+  function isAudioAuthorized(
+    sourceGroup: string,
+    isMain: boolean,
+    targetChatJid: string,
+    registeredGroups: Record<string, RegisteredGroup>,
+  ): boolean {
+    const targetGroup = registeredGroups[targetChatJid];
+    return isMain || (!!targetGroup && targetGroup.folder === sourceGroup);
+  }
+
+  it('main group can send audio to any group', () => {
+    expect(isAudioAuthorized('whatsapp_main', true, 'other@g.us', groups)).toBe(
+      true,
+    );
+    expect(isAudioAuthorized('whatsapp_main', true, 'third@g.us', groups)).toBe(
+      true,
+    );
+  });
+
+  it('non-main group can send audio to its own chat', () => {
+    expect(isAudioAuthorized('other-group', false, 'other@g.us', groups)).toBe(
+      true,
+    );
+  });
+
+  it('non-main group cannot send audio to another groups chat', () => {
+    expect(isAudioAuthorized('other-group', false, 'main@g.us', groups)).toBe(
+      false,
+    );
+    expect(isAudioAuthorized('other-group', false, 'third@g.us', groups)).toBe(
+      false,
+    );
+  });
+});
+
 // --- schedule_task with cron and interval types ---
 
 describe('schedule_task schedule types', () => {
