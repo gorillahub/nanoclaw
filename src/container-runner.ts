@@ -264,6 +264,9 @@ async function buildContainerArgs(
 ): Promise<string[]> {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
+  // Writable /tmp for OneCLI proxy CA cert and general scratch space
+  args.push('--tmpfs', '/tmp:rw,noexec,nosuid,size=64m');
+
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
 
