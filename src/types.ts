@@ -73,6 +73,9 @@ export interface ScheduledTask {
   /** Google Chat thread name. Stored on gchat-msg-* tasks so outbound
    *  messages can be tagged with the same thread for scoped history. */
   thread_id?: string | null;
+  /** Claude model to use for this task. Defaults to claude-sonnet-4-6.
+   *  Valid values: claude-haiku-4-5-20251001, claude-sonnet-4-6, claude-opus-4-6 */
+  model?: string | null;
 }
 
 export interface TaskRunLog {
