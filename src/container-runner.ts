@@ -47,6 +47,8 @@ export interface ContainerInput {
   containerId?: string;
   secrets?: Record<string, string>;
   script?: string;
+  /** Claude model override. Defaults to claude-sonnet-4-6 if not specified. */
+  model?: string | null;
 }
 
 export interface ContainerOutput {

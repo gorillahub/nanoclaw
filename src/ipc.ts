@@ -42,6 +42,21 @@ export interface IpcDeps {
   onTasksChanged: () => void;
 }
 
+const ALLOWED_MODELS = [
+  'claude-haiku-4-5-20251001',
+  'claude-sonnet-4-6',
+  'claude-opus-4-6',
+] as const;
+
+function validateModel(model: unknown): string | null {
+  if (model == null) return null;
+  if (typeof model === 'string' && ALLOWED_MODELS.includes(model as (typeof ALLOWED_MODELS)[number])) {
+    return model;
+  }
+  logger.warn({ model }, 'Invalid model value — using default');
+  return null;
+}
+
 let ipcWatcherRunning = false;
 
 export function startIpcWatcher(deps: IpcDeps): void {
@@ -406,6 +421,7 @@ export async function processTaskIpc(
           status: 'active',
           created_at: new Date().toISOString(),
           thread_id: data.threadId || null,
+          model: validateModel(data.model),
         });
         logger.info(
           { taskId, sourceGroup, targetFolder, contextMode },
@@ -504,6 +520,7 @@ export async function processTaskIpc(
             | 'once';
         if (data.schedule_value !== undefined)
           updates.schedule_value = data.schedule_value;
+        if (data.model !== undefined) updates.model = validateModel(data.model);
 
         // Recompute next_run if schedule changed
         if (data.schedule_type || data.schedule_value) {
