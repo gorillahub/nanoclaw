@@ -79,6 +79,7 @@ beforeEach(() => {
     getAvailableGroups: () => [],
     writeGroupsSnapshot: () => {},
     onTasksChanged: () => {},
+    messageLogger: { logMessage: () => {}, close: () => {} } as any,
   };
 });
 
@@ -948,5 +949,102 @@ describe('Google Chat conversation history', () => {
     // Only one message (the one just stored) — no history to prepend
     expect(task!.prompt).toBe(originalPrompt);
     expect(task!.prompt).not.toContain('<conversation-history>');
+  });
+});
+
+// --- Telegram topic routing (ISO-01, ISO-02, ISO-03) ---
+
+describe('Telegram topic routing', () => {
+  const TELEGRAM_GROUP: RegisteredGroup = {
+    name: 'PM Agent (Telegram)',
+    folder: 'telegram_pm-agent',
+    trigger: 'always',
+    added_at: '2024-01-01T00:00:00.000Z',
+  };
+
+  beforeEach(() => {
+    // Register the base Telegram group (parent JID only — no per-topic row)
+    groups['telegram:pm-agent'] = TELEGRAM_GROUP;
+    setRegisteredGroup('telegram:pm-agent', TELEGRAM_GROUP);
+    // Ensure chat metadata exists for both base and topic JIDs
+    storeChatMetadata('telegram:pm-agent', '2024-01-01T00:00:00.000Z', undefined, 'telegram', true);
+    storeChatMetadata('telegram:pm-agent:241', '2024-01-01T00:00:00.000Z', undefined, 'telegram', true);
+  });
+
+  it('topic message routes to topic-scoped group_folder', async () => {
+    // ISO-01: group_folder must be "telegram_pm-agent_241", not "telegram_pm-agent"
+    await processTaskIpc(
+      {
+        type: 'schedule_task',
+        taskId: 'tg-msg-1234567890',
+        prompt: 'hello from topic 241',
+        schedule_type: 'once',
+        schedule_value: new Date().toISOString(),
+        targetJid: 'telegram:pm-agent:241',
+        senderName: 'Craig',
+        messageText: 'hello',
+        threadId: 241,
+      },
+      'telegram_pm-agent_241', // sourceGroup — topic-scoped IPC dir
+      false,
+      deps,
+    );
+
+    const tasks = getAllTasks();
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].group_folder).toBe('telegram_pm-agent_241'); // ISO-01
+    expect(tasks[0].chat_jid).toBe('telegram:pm-agent:241');     // preserved
+    expect(tasks[0].thread_id).toBe(241);                         // preserved
+  });
+
+  it('non-topic message routes to base group_folder unchanged', async () => {
+    // ISO-03: direct message (no topic) must route to "telegram_pm-agent"
+    await processTaskIpc(
+      {
+        type: 'schedule_task',
+        taskId: 'tg-msg-no-topic',
+        prompt: 'hello, no topic',
+        schedule_type: 'once',
+        schedule_value: new Date().toISOString(),
+        targetJid: 'telegram:pm-agent',
+        senderName: 'Craig',
+        messageText: 'hello',
+      },
+      'telegram_pm-agent', // sourceGroup — base (no topic suffix)
+      false,
+      deps,
+    );
+
+    const tasks = getAllTasks();
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].group_folder).toBe('telegram_pm-agent'); // ISO-03
+  });
+
+  it('registered_groups lookup resolves via base JID for topic message', async () => {
+    // ISO-02: only "telegram:pm-agent" is registered (no per-topic row)
+    // The fallback must resolve via base JID; task must still be created
+    // and group_folder must be topic-scoped (ISO-01 + ISO-02 combined)
+    delete groups['telegram:pm-agent:241']; // confirm no per-topic row
+
+    await processTaskIpc(
+      {
+        type: 'schedule_task',
+        taskId: 'tg-msg-base-jid',
+        prompt: 'topic lookup via base JID',
+        schedule_type: 'once',
+        schedule_value: new Date().toISOString(),
+        targetJid: 'telegram:pm-agent:241',
+        senderName: 'Craig',
+        messageText: 'base jid test',
+        threadId: 241,
+      },
+      'telegram_pm-agent_241',
+      false,
+      deps,
+    );
+
+    const tasks = getAllTasks();
+    expect(tasks).toHaveLength(1); // task created — lookup succeeded via base JID
+    expect(tasks[0].group_folder).toBe('telegram_pm-agent_241'); // ISO-01
   });
 });
