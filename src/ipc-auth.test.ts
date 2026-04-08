@@ -967,8 +967,20 @@ describe('Telegram topic routing', () => {
     groups['telegram:pm-agent'] = TELEGRAM_GROUP;
     setRegisteredGroup('telegram:pm-agent', TELEGRAM_GROUP);
     // Ensure chat metadata exists for both base and topic JIDs
-    storeChatMetadata('telegram:pm-agent', '2024-01-01T00:00:00.000Z', undefined, 'telegram', true);
-    storeChatMetadata('telegram:pm-agent:241', '2024-01-01T00:00:00.000Z', undefined, 'telegram', true);
+    storeChatMetadata(
+      'telegram:pm-agent',
+      '2024-01-01T00:00:00.000Z',
+      undefined,
+      'telegram',
+      true,
+    );
+    storeChatMetadata(
+      'telegram:pm-agent:241',
+      '2024-01-01T00:00:00.000Z',
+      undefined,
+      'telegram',
+      true,
+    );
   });
 
   it('topic message routes to topic-scoped group_folder', async () => {
@@ -993,8 +1005,8 @@ describe('Telegram topic routing', () => {
     const tasks = getAllTasks();
     expect(tasks).toHaveLength(1);
     expect(tasks[0].group_folder).toBe('telegram_pm-agent_241'); // ISO-01
-    expect(tasks[0].chat_jid).toBe('telegram:pm-agent:241');     // preserved
-    expect(tasks[0].thread_id).toBe(241);                         // preserved
+    expect(tasks[0].chat_jid).toBe('telegram:pm-agent:241'); // preserved
+    expect(tasks[0].thread_id).toBe('241'); // preserved (stored as string in DB)
   });
 
   it('non-topic message routes to base group_folder unchanged', async () => {

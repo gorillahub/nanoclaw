@@ -294,11 +294,20 @@ export async function processTaskIpc(
           break;
         }
 
-        const targetFolder = targetGroupEntry.folder;
+        // ISO-01: derive folder from sourceGroup to preserve topic suffix.
+        // When sourceGroup is the same group (or topic thereof) as the target,
+        // use sourceGroup directly so the topic ID is preserved in group_folder.
+        // For cross-group scheduling (main scheduling another group), use
+        // targetGroupEntry.folder — sourceGroup is the scheduler, not the target.
+        const sourceBase = sourceGroup.replace(/_\d+$/, '');
+        const targetFolder =
+          sourceGroup === targetGroupEntry.folder ||
+          sourceBase === targetGroupEntry.folder
+            ? sourceGroup
+            : targetGroupEntry.folder;
 
         // Authorization: non-main groups can only schedule for themselves.
         // Topic IPC dirs (e.g. telegram_pm-agent_241) belong to their parent group.
-        const sourceBase = sourceGroup.replace(/_\d+$/, '');
         if (
           !isMain &&
           targetFolder !== sourceGroup &&
@@ -465,7 +474,7 @@ export async function processTaskIpc(
           next_run: nextRun,
           status: 'active',
           created_at: new Date().toISOString(),
-          thread_id: data.threadId || null,
+          thread_id: data.threadId != null ? String(data.threadId) : null,
           model: taskModel,
         });
         logger.info(
