@@ -50,7 +50,10 @@ const ALLOWED_MODELS = [
 
 function validateModel(model: unknown): string | null {
   if (model == null) return null;
-  if (typeof model === 'string' && ALLOWED_MODELS.includes(model as (typeof ALLOWED_MODELS)[number])) {
+  if (
+    typeof model === 'string' &&
+    ALLOWED_MODELS.includes(model as (typeof ALLOWED_MODELS)[number])
+  ) {
     return model;
   }
   logger.warn({ model }, 'Invalid model value — using default');
