@@ -107,6 +107,7 @@ async function logTokenUsage(
   sessionId: string,
   operationLabel: string,
   usage: TokenUsage,
+  model: string,
   isSummary = false,
 ): Promise<void> {
   if (!_airtableApiKey) return;
@@ -135,6 +136,7 @@ async function logTokenUsage(
               'Cost GBP': costGbp,
               'Cache Hit Rate %': cacheHitRate,
               'Is Summary': isSummary,
+              Model: model,
             },
           }],
         }),
@@ -423,7 +425,7 @@ async function runQuery(
       resume: sessionId,
       resumeSessionAt: resumeAt,
       systemPrompt: globalClaudeMd ? { type: 'preset' as const, preset: 'claude_code' as const, append: globalClaudeMd } : undefined,
-      allowedTools: ['Bash','Read','Write','Edit','Glob','Grep','WebSearch','WebFetch','Task','TaskOutput','TaskStop','TeamCreate','TeamDelete','SendMessage','TodoWrite','ToolSearch','Skill','NotebookEdit','mcp__nanoclaw__*'],
+      allowedTools: ['Bash','Read','Write','Edit','Glob','Grep','WebSearch','WebFetch','Task','TaskOutput','TaskStop','TeamCreate','TeamDelete','SendMessage','TodoWrite','ToolSearch','Skill','NotebookEdit','mcp__nanoclaw__*','mcp__pm-agent__*'],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
@@ -436,6 +438,47 @@ async function runQuery(
             NANOCLAW_CHAT_JID: containerInput.chatJid,
             NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
+          },
+        },
+        // PM Agent MCP server — project management tools
+        // Managed by scripts/patch-nanoclaw-agent-runner.py in gos-pm-agent.
+        // Do not edit directly; changes to the canonical nanoclaw source
+        // will be overwritten by the patcher on next deploy.
+        'pm-agent': {
+          command: 'node',
+          args: ['/workspace/group/mcp-server/dist/index.js'],
+          env: {
+            AIRTABLE_API_KEY: (sdkEnv.AIRTABLE_API_KEY as string) || '',
+            AIRTABLE_BASE_ID: (sdkEnv.AIRTABLE_BASE_ID as string) || '',
+            GITHUB_REPO_PATH: '/workspace/extra/gorillahubos',
+            SESSION_STATE_PATH: '/workspace/group/session-state.json',
+            SCORING_CONFIG_PATH: '/workspace/group/scoring/dimensions.json',
+            IPC_INPUT_DIR: '/workspace/ipc/input',
+            GSD_TOOLS_PATH: '/home/node/.claude/get-shit-done/bin/gsd-tools.cjs',
+            GMS_DASHBOARD_URL: 'https://gms.gorillahub.co.uk',
+            INTAKE_MODE: (sdkEnv.INTAKE_MODE as string) || 'preview',
+            MEMORY_DIR: '/workspace/extra/memory',
+            GITHUB_TOKEN: (sdkEnv.GITHUB_TOKEN as string) || '',
+            GOOGLE_CHAT_SA_KEY_PATH: '/workspace/extra/service-accounts/google-chat-sa.json',
+            N8N_BASE_URL: (sdkEnv.N8N_BASE_URL as string) || '',
+            N8N_API_KEY: (sdkEnv.N8N_API_KEY as string) || '',
+            LINKEDIN_COOKIES_CRAIG: (sdkEnv.LINKEDIN_COOKIES_CRAIG as string) || '',
+            LINKEDIN_COOKIES_HOLLY: (sdkEnv.LINKEDIN_COOKIES_HOLLY as string) || '',
+            LINKEDIN_CSRF_CRAIG: (sdkEnv.LINKEDIN_CSRF_CRAIG as string) || '',
+            LINKEDIN_CSRF_HOLLY: (sdkEnv.LINKEDIN_CSRF_HOLLY as string) || '',
+            LINKEDIN_TOKEN_CRAIG: (sdkEnv.LINKEDIN_TOKEN_CRAIG as string) || '',
+            LINKEDIN_TOKEN_HOLLY: (sdkEnv.LINKEDIN_TOKEN_HOLLY as string) || '',
+            LINKEDIN_URN_CRAIG: (sdkEnv.LINKEDIN_URN_CRAIG as string) || '',
+            LINKEDIN_URN_HOLLY: (sdkEnv.LINKEDIN_URN_HOLLY as string) || '',
+            IMAGIFY_API_KEY: (sdkEnv.IMAGIFY_API_KEY as string) || '',
+            METRICOOL_API_KEY: (sdkEnv.METRICOOL_API_KEY as string) || '',
+            METRICOOL_USER_ID: (sdkEnv.METRICOOL_USER_ID as string) || '',
+            METRICOOL_BLOG_ID: (sdkEnv.METRICOOL_BLOG_ID as string) || '',
+            FREEPIK_API_KEY: (sdkEnv.FREEPIK_API_KEY as string) || '',
+            OVH_APPLICATION_KEY: (sdkEnv.OVH_APPLICATION_KEY as string) || '',
+            OVH_APPLICATION_SECRET: (sdkEnv.OVH_APPLICATION_SECRET as string) || '',
+            OVH_CONSUMER_KEY: (sdkEnv.OVH_CONSUMER_KEY as string) || '',
+            OVH_ENDPOINT: (sdkEnv.OVH_ENDPOINT as string) || 'ovh-eu',
           },
         },
       },
@@ -584,7 +627,7 @@ async function main(): Promise<void> {
       if (queryResult.newSessionId) sessionId = queryResult.newSessionId;
       if (queryResult.lastAssistantUuid) resumeAt = queryResult.lastAssistantUuid;
 
-      await logTokenUsage(sessionId || 'unknown', operationLabel, queryResult.usage);
+      await logTokenUsage(sessionId || 'unknown', operationLabel, queryResult.usage, containerInput.model || 'claude-sonnet-4-6');
       sessionTotalUsage = addUsage(sessionTotalUsage, queryResult.usage);
 
       if (queryResult.closedDuringQuery) { log('Close sentinel consumed during query, exiting'); break; }
@@ -603,7 +646,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  await logTokenUsage(sessionId || 'unknown', 'session_summary', sessionTotalUsage, true);
+  await logTokenUsage(sessionId || 'unknown', 'session_summary', sessionTotalUsage, containerInput.model || 'claude-sonnet-4-6', true);
 }
 
 main();
