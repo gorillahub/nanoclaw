@@ -24,6 +24,13 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { fileURLToPath } from 'url';
 
+const ALLOWED_MODELS = [
+  'claude-haiku-4-5-20251001',
+  'claude-sonnet-4-6',
+  'claude-opus-4-6',
+];
+const DEFAULT_MODEL = 'claude-sonnet-4-6';
+
 interface ContainerInput {
   prompt: string;
   sessionId?: string;
@@ -35,7 +42,8 @@ interface ContainerInput {
   containerId?: string;
   secrets?: Record<string, string>;
   script?: string;
-  model?: string;
+  /** Claude model override. Defaults to claude-sonnet-4-6 if not specified. */
+  model?: string | null;
 }
 
 interface ContainerOutput {
@@ -421,6 +429,7 @@ async function runQuery(
   mcpServerPath: string,
   containerInput: ContainerInput,
   sdkEnv: Record<string, string | undefined>,
+  model: string,
   resumeAt?: string,
 ): Promise<{
   newSessionId?: string;
@@ -483,6 +492,7 @@ async function runQuery(
     prompt: stream,
     options: {
       cwd: '/workspace/group',
+      model,
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
       resume: sessionId,
       resumeSessionAt: resumeAt,
@@ -534,7 +544,6 @@ async function runQuery(
           { hooks: [createPreCompactHook(containerInput.assistantName)] },
         ],
       },
-      model: containerInput.model || undefined,
     },
   })) {
     messageCount++;
@@ -645,6 +654,49 @@ async function runScript(script: string): Promise<ScriptResult | null> {
   });
 }
 
+/**
+ * Log the model used for this session to the Airtable Token Usage table.
+ * Non-blocking fire-and-forget — never throws or delays the session.
+ */
+async function logModelUsed(
+  model: string,
+  env: Record<string, string | undefined>,
+  groupFolder: string,
+): Promise<void> {
+  const apiKey = env.AIRTABLE_API_KEY;
+  const baseId = env.AIRTABLE_BASE_ID;
+  const tableId = env.NANOCLAW_TOKEN_USAGE_TABLE_ID || 'tbl2z3ZhTbNYvD3jx';
+  if (!apiKey || !baseId) return;
+
+  try {
+    const body = JSON.stringify({
+      records: [
+        {
+          fields: {
+            Date: new Date().toISOString().slice(0, 10),
+            Group: groupFolder,
+            Model: model,
+            Source: 'agent-runner',
+          },
+        },
+      ],
+    });
+    const resp = await fetch(`https://api.airtable.com/v0/${baseId}/${tableId}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body,
+    });
+    if (!resp.ok) {
+      log(`logModelUsed: Airtable POST failed (${resp.status})`);
+    }
+  } catch {
+    /* ignore — logging is best-effort */
+  }
+}
+
 async function main(): Promise<void> {
   let containerInput: ContainerInput;
 
@@ -730,7 +782,16 @@ async function main(): Promise<void> {
     prompt = `[SCHEDULED TASK]\n\nScript output:\n${JSON.stringify(scriptResult.data, null, 2)}\n\nInstructions:\n${containerInput.prompt}`;
   }
 
-  // Query loop: run query → wait for IPC message → run new query → repeat
+  // Resolve model: validate against allowlist, default to claude-sonnet-4-6
+  const model =
+    containerInput.model && ALLOWED_MODELS.includes(containerInput.model)
+      ? containerInput.model
+      : DEFAULT_MODEL;
+  log(`Using model: ${model}`);
+
+  // Log model used — non-blocking, runs in background
+  logModelUsed(model, sdkEnv, containerInput.groupFolder).catch(() => {});
+
   let resumeAt: string | undefined;
   try {
     while (true) {
@@ -744,6 +805,7 @@ async function main(): Promise<void> {
         mcpServerPath,
         containerInput,
         sdkEnv,
+        model,
         resumeAt,
       );
       if (queryResult.newSessionId) {
