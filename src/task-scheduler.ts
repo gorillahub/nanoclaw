@@ -220,9 +220,30 @@ async function runTask(
   );
 
   const groups = deps.registeredGroups();
-  const group = Object.values(groups).find(
-    (g) => g.folder === task.group_folder,
-  );
+  let group = Object.values(groups).find((g) => g.folder === task.group_folder);
+
+  // Topic fallback: topic-specific folders (e.g. "telegram_pm-agent_1030")
+  // may not have their own registered group. Fall back to the parent group
+  // (e.g. "telegram_pm-agent") which handles all topics for that channel.
+  if (!group && task.group_folder.includes('_')) {
+    const parts = task.group_folder.split('_');
+    // Try progressively shorter prefixes: "telegram_pm-agent_1030" -> "telegram_pm-agent"
+    while (parts.length > 1 && !group) {
+      parts.pop();
+      const parentFolder = parts.join('_');
+      group = Object.values(groups).find((g) => g.folder === parentFolder);
+      if (group) {
+        logger.info(
+          {
+            taskId: task.id,
+            topicFolder: task.group_folder,
+            parentFolder,
+          },
+          'Resolved topic task to parent group',
+        );
+      }
+    }
+  }
 
   if (!group) {
     logger.error(
@@ -265,7 +286,7 @@ async function runTask(
   // Sends "still working" messages at escalating intervals if the agent
   // hasn't produced output. Cancelled as soon as the first result arrives.
   let cancelProgress: (() => void) | null = null;
-  if (task.id.startsWith('gchat-msg-')) {
+  if (task.id.startsWith('gchat-msg-') || task.id.startsWith('tg-msg-')) {
     cancelProgress = startProgressMonitor(
       deps.sendMessage,
       task.chat_jid,
@@ -359,10 +380,16 @@ async function runTask(
           // what Holly said, so subsequent messages include full context.
           // Thread ID is read from activeTask so warm-reused containers get
           // the CURRENT task's thread_id, not the original spawning task's.
-          if (activeTask.id.startsWith('gchat-msg-')) {
+          if (
+            activeTask.id.startsWith('gchat-msg-') ||
+            activeTask.id.startsWith('tg-msg-')
+          ) {
             try {
+              const outId = activeTask.chat_jid.startsWith('telegram:')
+                ? 'tg-out'
+                : 'gchat-out';
               storeMessage({
-                id: `gchat-out-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                id: `${outId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
                 chat_jid: activeTask.chat_jid,
                 sender: ASSISTANT_NAME,
                 sender_name: ASSISTANT_NAME,
@@ -382,13 +409,20 @@ async function runTask(
             // streamedOutput.result at this point has already passed through
             // formatOutbound() in the sendMessage lambda, so [SILENT] content
             // is already stripped before reaching here.
+            const msgChannel =
+              activeTask.chat_jid.startsWith('gchat:') ||
+              activeTask.chat_jid.startsWith('spaces/')
+                ? 'google-chat'
+                : activeTask.chat_jid.startsWith('telegram:')
+                  ? 'telegram'
+                  : 'whatsapp';
             deps.messageLogger?.logMessage({
-              id: `gchat-out-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              id: `${msgChannel}-out-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
               chat_jid: activeTask.chat_jid,
               thread_id: activeTask.thread_id ?? null,
               sender: ASSISTANT_NAME,
               sender_name: ASSISTANT_NAME,
-              channel: 'google-chat',
+              channel: msgChannel,
               direction: 'outbound',
               content: streamedOutput.result,
               timestamp: new Date().toISOString(),
