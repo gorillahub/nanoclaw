@@ -32,7 +32,6 @@ const ALLOWED_TASK_MODELS = new Set([
   'claude-opus-4-6',
 ]);
 
-
 export interface IpcDeps {
   sendMessage: (jid: string, text: string, threadId?: string) => Promise<void>;
   sendAudio: (jid: string, audio: Buffer, mimetype?: string) => Promise<void>;
@@ -269,9 +268,26 @@ export async function processTaskIpc(
         data.schedule_value &&
         data.targetJid
       ) {
-        // Resolve the target group from JID
+        // Resolve the target group from JID, with topic fallback.
+        // Topic JIDs like "telegram:pm-agent:1030" may not have a dedicated
+        // registered group — fall back to the parent "telegram:pm-agent".
         const targetJid = data.targetJid as string;
-        const targetGroupEntry = registeredGroups[targetJid];
+        let targetGroupEntry = registeredGroups[targetJid];
+
+        if (!targetGroupEntry && targetJid.includes(':')) {
+          const parts = targetJid.split(':');
+          while (parts.length > 2 && !targetGroupEntry) {
+            parts.pop();
+            const baseJid = parts.join(':');
+            targetGroupEntry = registeredGroups[baseJid];
+            if (targetGroupEntry) {
+              logger.debug(
+                { targetJid, baseJid },
+                'Resolved topic JID to base group for task scheduling',
+              );
+            }
+          }
+        }
 
         if (!targetGroupEntry) {
           logger.warn(
@@ -281,7 +297,12 @@ export async function processTaskIpc(
           break;
         }
 
-        const targetFolder = targetGroupEntry.folder;
+        // Use the topic-specific folder for container isolation, not the
+        // parent group's folder. This ensures each topic gets its own
+        // CLAUDE.md, logs dir, and session state.
+        const targetFolder = targetJid.includes(':')
+          ? targetJid.replace(/:/g, '_')
+          : targetGroupEntry.folder;
 
         // Authorization: non-main groups can only schedule for themselves
         if (!isMain && targetFolder !== sourceGroup) {
@@ -338,30 +359,37 @@ export async function processTaskIpc(
             ? data.context_mode
             : 'isolated';
 
-        // ── Google Chat conversation history injection ──
-        // For interactive Google Chat messages (gchat-msg-* tasks), store
+        // ── Conversation history injection (Google Chat + Telegram) ──
+        // For interactive messages (gchat-msg-* / tg-msg-* tasks), store
         // the inbound message in the messages DB and prepend recent
         // conversation history to the prompt. This ensures Holly has
         // context even when spawned in a fresh container.
         //
         // Thread-scoped: when a threadId is present, only messages from
         // the same thread are included in history. This prevents topic
-        // pollution when multiple Chat threads are active simultaneously.
+        // pollution when multiple threads are active simultaneously.
         let enrichedPrompt = data.prompt;
-        if (taskId.startsWith('gchat-msg-') && data.senderName) {
+        const isInteractiveMsg =
+          (taskId.startsWith('gchat-msg-') || taskId.startsWith('tg-msg-')) &&
+          data.senderName;
+        if (isInteractiveMsg) {
           const now = new Date().toISOString();
-          const msgId = `gchat-in-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          const channelPrefix = taskId.startsWith('tg-msg-') ? 'tg' : 'gchat';
+          const channelName = taskId.startsWith('tg-msg-')
+            ? 'telegram'
+            : 'google-chat';
+          const msgId = `${channelPrefix}-in-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
           const threadId = data.threadId || null;
 
           // Ensure chat metadata exists (foreign key constraint)
-          storeChatMetadata(targetJid, now, undefined, 'google-chat');
+          storeChatMetadata(targetJid, now, undefined, channelName);
 
           // Store the inbound message with thread context
           storeMessage({
             id: msgId,
             chat_jid: targetJid,
-            sender: data.senderEmail || data.senderName,
-            sender_name: data.senderName,
+            sender: (data.senderEmail || data.senderName) as string,
+            sender_name: data.senderName as string,
             content: data.messageText || '',
             timestamp: now,
             is_from_me: false,
@@ -397,7 +425,7 @@ export async function processTaskIpc(
               sender: data.senderName,
               threadId: threadId || 'none',
             },
-            'Google Chat message stored with thread-scoped conversation history',
+            'Message stored with thread-scoped conversation history',
           );
         }
 
@@ -529,7 +557,10 @@ export async function processTaskIpc(
           } else if (ALLOWED_TASK_MODELS.has(data.model)) {
             updates.model = data.model;
           } else {
-            logger.warn({ model: data.model }, 'Invalid model value in update_task, ignoring');
+            logger.warn(
+              { model: data.model },
+              'Invalid model value in update_task, ignoring',
+            );
           }
         }
 
