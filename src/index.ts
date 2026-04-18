@@ -776,17 +776,19 @@ async function main(): Promise<void> {
       }
       storeMessage(msg);
       // Also log to persistent memory.db for cross-session search (Phase 19).
-      const channel =
+      const msgChannel =
         chatJid.startsWith('gchat:') || chatJid.startsWith('spaces/')
           ? 'google-chat'
-          : 'whatsapp';
+          : chatJid.startsWith('telegram:')
+            ? 'telegram'
+            : 'whatsapp';
       messageLogger.logMessage({
         id: msg.id,
         chat_jid: msg.chat_jid,
         thread_id: msg.thread_id ?? null,
         sender: msg.sender,
         sender_name: msg.sender_name,
-        channel,
+        channel: msgChannel,
         direction: msg.is_from_me ? 'outbound' : 'inbound',
         content: msg.content,
         timestamp: msg.timestamp,
@@ -821,6 +823,18 @@ async function main(): Promise<void> {
   if (channels.length === 0) {
     logger.fatal('No channels connected');
     process.exit(1);
+  }
+
+  // Validate that every registered group has a matching connected channel.
+  // Catches silent failures where messages arrive but replies are dropped.
+  for (const [jid, group] of Object.entries(registeredGroups)) {
+    const channel = findChannel(channels, jid);
+    if (!channel) {
+      logger.error(
+        { jid, group: group.name, folder: group.folder },
+        'Registered group has no connected channel — outbound messages will be dropped. Check channel imports and credentials.',
+      );
+    }
   }
 
   // Start subsystems (independently of connection handler)
@@ -858,7 +872,9 @@ async function main(): Promise<void> {
           channel:
             jid.startsWith('gchat:') || jid.startsWith('spaces/')
               ? 'google-chat'
-              : 'whatsapp',
+              : jid.startsWith('telegram:')
+                ? 'telegram'
+                : 'whatsapp',
           direction: 'outbound',
           content: text,
           timestamp: new Date().toISOString(),

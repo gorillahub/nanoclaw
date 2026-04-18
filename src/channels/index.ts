@@ -8,6 +8,7 @@
 // slack
 
 // telegram
+import './telegram.js';
 
 // google-chat
 import './google-chat.js';
