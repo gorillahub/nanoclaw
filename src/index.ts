@@ -838,6 +838,14 @@ async function main(): Promise<void> {
   }
 
   // Start subsystems (independently of connection handler)
+
+  // Dedup gate: suppress identical outbound messages to the same target within 10 s.
+  // Two concurrent containers can race to send the same response (e.g. two "?" messages
+  // processed simultaneously producing identical text). The gate drops the second send
+  // entirely — it will not appear in Telegram or memory.db.
+  const recentlySentMessages = new Map<string, number>(); // key -> Date.now()
+  const SEND_DEDUP_WINDOW_MS = 10_000;
+
   startSchedulerLoop({
     registeredGroups: () => registeredGroups,
     getSessions: () => sessions,
@@ -859,6 +867,26 @@ async function main(): Promise<void> {
       }
       const text = formatOutbound(rawText);
       if (text) {
+        // Dedup: skip if identical content was sent to the same target recently.
+        const dedupeKey = `${jid}:${threadId ?? ''}:${text}`;
+        const now = Date.now();
+        const lastSent = recentlySentMessages.get(dedupeKey);
+        if (lastSent !== undefined && now - lastSent < SEND_DEDUP_WINDOW_MS) {
+          logger.warn(
+            { jid, threadId, textLength: text.length },
+            'Suppressing duplicate outbound message within dedup window',
+          );
+          return;
+        }
+        recentlySentMessages.set(dedupeKey, now);
+        // Prune stale entries to avoid unbounded growth.
+        if (recentlySentMessages.size > 500) {
+          for (const [k, ts] of recentlySentMessages) {
+            if (now - ts > SEND_DEDUP_WINDOW_MS * 6)
+              recentlySentMessages.delete(k);
+          }
+        }
+
         await channel.sendMessage(jid, text, threadId);
         // Log outbound message to persistent memory.db.
         // [SILENT] messages are filtered out by formatOutbound() above —
