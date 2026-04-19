@@ -61,6 +61,12 @@ RUN printf '#!/bin/bash\nset -e\ncd /app && npx tsc --outDir /tmp/dist 2>&1 >&2\
 # Set ownership to node user (non-root) for writable directories
 RUN chown -R node:node /workspace && chmod 777 /home/node
 
+# Add UID 954 (GorillaHub deployment UID) to /etc/passwd and /etc/group so that
+# SSH and other tools that call getpwuid() don't fail when the container runs as
+# this UID via --user 954:954. Home is /home/node which is already world-writable.
+RUN echo "agent:x:954:954:NanoClaw Agent:/home/node:/bin/bash" >> /etc/passwd \
+ && echo "agent:x:954:" >> /etc/group
+
 # Switch to non-root user (required for --dangerously-skip-permissions)
 USER node
 
