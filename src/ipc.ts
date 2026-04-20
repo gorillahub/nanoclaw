@@ -393,7 +393,11 @@ export async function processTaskIpc(
             content: data.messageText || '',
             timestamp: now,
             is_from_me: false,
-            is_bot_message: false,
+            // Telegram messages arrive via IPC task path, not the main message loop.
+            // Marking as is_bot_message suppresses re-processing by the main loop
+            // (getNewMessages filters these out) while getRecentMessagesByThread
+            // still returns them for conversation history injection.
+            is_bot_message: channelName === 'telegram',
             thread_id: threadId ?? undefined,
           });
 
