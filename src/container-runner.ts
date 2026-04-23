@@ -261,6 +261,12 @@ async function readSecrets(): Promise<Record<string, string>> {
     'SSH_ALLOWED_HOSTS',
     'DRIVE_AGENT_FOLDER_ID',
     'DRIVE_SKILLS_ID',
+    // Supabase
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'SUPABASE_DB_URL',
+    'SUPABASE_PROJECT_REF',
   ]);
 
   // OAuth token from credentials file (auto-refreshing) or .env fallback
