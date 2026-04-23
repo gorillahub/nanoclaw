@@ -886,7 +886,6 @@ async function main(): Promise<void> {
               recentlySentMessages.delete(k);
           }
         }
-
         await channel.sendMessage(jid, text, threadId);
         // Log outbound message to persistent memory.db.
         // [SILENT] messages are filtered out by formatOutbound() above —

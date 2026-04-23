@@ -259,6 +259,8 @@ async function readSecrets(): Promise<Record<string, string>> {
     // SSH remote access
     'SSH_KEY_PATH',
     'SSH_ALLOWED_HOSTS',
+    'DRIVE_AGENT_FOLDER_ID',
+    'DRIVE_SKILLS_ID',
   ]);
 
   // OAuth token from credentials file (auto-refreshing) or .env fallback
