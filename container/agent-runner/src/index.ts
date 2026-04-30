@@ -577,6 +577,71 @@ async function runScript(script: string): Promise<ScriptResult | null> {
   });
 }
 
+function bootstrapV2ConfigForSession(): void {
+  try {
+    const groupConfigPath = '/workspace/group/.claude/config.md';
+    if (!fs.existsSync(groupConfigPath)) return;
+
+    const raw = fs.readFileSync(groupConfigPath, 'utf-8');
+    if (!/^config_version:\s*2\b/m.test(raw)) return;
+
+    const sessionClaudeDir = '/home/node/.claude';
+    fs.mkdirSync(sessionClaudeDir, { recursive: true });
+
+    // Parse assigned_tools list from YAML-style block (supports empty/null)
+    const lines = raw.split('\n');
+    const assignedTools: string[] = [];
+    let inAssignedTools = false;
+
+    for (const line of lines) {
+      if (/^assigned_tools:\s*$/.test(line)) {
+        inAssignedTools = true;
+        continue;
+      }
+      if (!inAssignedTools) continue;
+
+      // Stop when next top-level config key starts
+      if (/^[a-z_]+:\s*/.test(line)) break;
+
+      const m = line.match(/^\s*-\s*(.+?)\s*$/);
+      if (m) {
+        assignedTools.push(m[1].replace(/^['\"]|['\"]$/g, ''));
+      }
+    }
+
+    const inventory = {
+      version: 1,
+      source: 'assigned_tools',
+      count: assignedTools.length,
+      items: assignedTools.map((tool) => ({
+        slug: tool,
+        file: null,
+        title: null,
+        status: 'unresolved',
+      })),
+    };
+
+    fs.writeFileSync(
+      path.join(sessionClaudeDir, 'tools-inventory.json'),
+      JSON.stringify(inventory, null, 2),
+    );
+
+    // Mirror universal rules from group into session .claude/rules/universal
+    const srcUniversalRules = '/workspace/group/.claude/rules/universal';
+    const dstUniversalRules = '/home/node/.claude/rules/universal';
+    if (fs.existsSync(srcUniversalRules)) {
+      fs.mkdirSync(dstUniversalRules, { recursive: true });
+      fs.cpSync(srcUniversalRules, dstUniversalRules, { recursive: true });
+    }
+
+    log(`v2 bootstrap complete: tools=${assignedTools.length}`);
+  } catch (err) {
+    log(
+      `v2 bootstrap skipped: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
 async function main(): Promise<void> {
   let containerInput: ContainerInput;
   try {
@@ -595,6 +660,7 @@ async function main(): Promise<void> {
   }
 
   _airtableApiKey = containerInput.secrets?.AIRTABLE_API_KEY;
+  bootstrapV2ConfigForSession();
 
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const mcpServerPath = path.join(__dirname, 'ipc-mcp-stdio.js');
