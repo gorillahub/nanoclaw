@@ -5,6 +5,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { execFile } from 'child_process';
 import {
   query,
@@ -782,54 +783,147 @@ async function runScript(script: string): Promise<ScriptResult | null> {
 
 function bootstrapSessionConfig(): void {
   try {
-    // Preferred source of truth: Drive-synced CLAUDE.md in group root.
-    // Backward-compatible fallback: legacy .claude/config.md if present.
-    const claudePath = '/workspace/group/CLAUDE.md';
-    const legacyConfigPath = '/workspace/group/.claude/config.md';
-    const sourcePath = fs.existsSync(claudePath)
-      ? claudePath
-      : fs.existsSync(legacyConfigPath)
-        ? legacyConfigPath
-        : null;
-
-    if (!sourcePath) return;
-
-    const raw = fs.readFileSync(sourcePath, 'utf-8');
-    const sessionClaudeDir = '/home/node/.claude';
-    fs.mkdirSync(sessionClaudeDir, { recursive: true });
-
-    // Parse optional assigned_tools YAML-style block if present.
-    // If absent, inventory defaults to empty.
-    const lines = raw.split('\n');
-    const assignedTools: string[] = [];
-    let inAssignedTools = false;
-
-    for (const line of lines) {
-      if (/^assigned_tools:\s*$/.test(line)) {
-        inAssignedTools = true;
-        continue;
-      }
-      if (!inAssignedTools) continue;
-
-      if (/^[a-z_]+:\s*/.test(line)) break;
-
-      const m = line.match(/^\s*-\s*(.+?)\s*$/);
-      if (m) {
-        assignedTools.push(m[1].replace(/^['\"]|['\"]$/g, ''));
-      }
+    const configPath = '/workspace/group/.claude/config.md';
+    if (!fs.existsSync(configPath)) {
+      throw new Error('missing /workspace/group/.claude/config.md');
     }
 
+    const raw = fs.readFileSync(configPath, 'utf-8');
+    const yaml = (() => {
+      const fenced = raw.match(/```ya?ml\s*([\s\S]*?)```/i);
+      if (fenced) return fenced[1];
+      return raw;
+    })();
+
+    const readScalar = (key: string): string | null => {
+      const m = yaml.match(new RegExp(`^${key}:\\s*(.+)\\s*$`, 'm'));
+      if (!m) return null;
+      return m[1].trim().replace(/^['\"]|['\"]$/g, '');
+    };
+
+    const readBool = (key: string): boolean =>
+      /^true$/i.test(readScalar(key) || 'false');
+
+    const readList = (key: string): string[] => {
+      const block = yaml.match(
+        new RegExp(`^${key}:\\s*(?:\\n((?:\\s+-.*\\n?)+)|(.+))`, 'm'),
+      );
+      if (!block) return [];
+      const inline = (block[2] || '').trim();
+      if (!inline || inline === 'null' || inline === '[]') return [];
+      if (inline.startsWith('[') && inline.endsWith(']')) {
+        return inline
+          .slice(1, -1)
+          .split(',')
+          .map((s) => s.trim().replace(/^['\"]|['\"]$/g, ''))
+          .filter(Boolean);
+      }
+      return (block[1] || '')
+        .split('\n')
+        .map((line) => line.match(/^\s*-\s*(.+?)\s*$/)?.[1] || '')
+        .map((v) => v.replace(/^['\"]|['\"]$/g, '').trim())
+        .filter(Boolean);
+    };
+
+    const configVersion = readScalar('config_version') || '1';
+    if (configVersion !== '2') {
+      throw new Error(
+        `unsupported config_version=${configVersion}; expected 2`,
+      );
+    }
+
+    const role = readScalar('role');
+    if (!role) throw new Error('missing required field: role');
+
+    const assignedTools = readList('assigned_tools');
+    const assignedRules = readList('assigned_rules');
+    const inheritUniversalRules = readBool('inherit_universal_rules');
+
+    const walkFiles = (dir: string): string[] => {
+      if (!fs.existsSync(dir)) return [];
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      return entries.flatMap((entry) => {
+        const p = path.join(dir, entry.name);
+        if (entry.isDirectory()) return walkFiles(p);
+        return [p];
+      });
+    };
+
+    const resolveRulePath = (ruleRef: string): string | null => {
+      const candidates = [
+        path.join('/workspace/group', ruleRef),
+        path.join('/workspace/group/.claude', ruleRef),
+        path.join('/workspace/group/.claude/rules', ruleRef),
+        path.join(
+          '/workspace/group/.claude/rules/role',
+          role,
+          path.basename(ruleRef),
+        ),
+      ];
+      for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) return candidate;
+      }
+      return null;
+    };
+
+    const resolvedRuleFiles = new Set<string>();
+    if (inheritUniversalRules) {
+      for (const file of walkFiles(
+        '/workspace/group/.claude/rules/universal',
+      )) {
+        if (file.endsWith('.md')) resolvedRuleFiles.add(file);
+      }
+    }
+    for (const ruleRef of assignedRules) {
+      const resolved = resolveRulePath(ruleRef);
+      if (resolved) resolvedRuleFiles.add(resolved);
+    }
+
+    const manifestHash = crypto
+      .createHash('sha256')
+      .update(yaml)
+      .digest('hex')
+      .slice(0, 16);
+
+    const ruleBlocks = Array.from(resolvedRuleFiles)
+      .sort()
+      .map((file) => {
+        const body = fs.readFileSync(file, 'utf-8').trim();
+        return `## ${path.relative('/workspace/group', file)}\n\n${body}`;
+      })
+      .join('\n\n---\n\n');
+
+    const generatedClaudeMd = [
+      '# AUTO-GENERATED. DO NOT EDIT.',
+      '',
+      `Generated: ${new Date().toISOString().slice(0, 10)}`,
+      `Source: /workspace/group/.claude/config.md`,
+      `Manifest-Hash: ${manifestHash}`,
+      '',
+      `Role: ${role}`,
+      `Config-Version: ${configVersion}`,
+      '',
+      ruleBlocks || '_No resolved rule bodies._',
+      '',
+    ].join('\n');
+
+    const sessionClaudeDir = '/home/node/.claude';
+    fs.mkdirSync(sessionClaudeDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionClaudeDir, 'CLAUDE.md'),
+      generatedClaudeMd,
+    );
+
     const inventory = {
-      version: 1,
-      source: sourcePath.endsWith('CLAUDE.md')
-        ? 'claude_md'
-        : 'legacy_config_md',
+      version: 2,
+      source: 'config_md',
+      config_version: configVersion,
       count: assignedTools.length,
       items: assignedTools.map((tool) => ({
         slug: tool,
         file: null,
         title: null,
-        status: 'unresolved',
+        status: 'assigned',
       })),
     };
 
@@ -838,7 +932,6 @@ function bootstrapSessionConfig(): void {
       JSON.stringify(inventory, null, 2),
     );
 
-    // Optional: mirror universal rules if present in mounted group path
     const srcUniversalRules = '/workspace/group/.claude/rules/universal';
     const dstUniversalRules = '/home/node/.claude/rules/universal';
     if (fs.existsSync(srcUniversalRules)) {
@@ -847,12 +940,12 @@ function bootstrapSessionConfig(): void {
     }
 
     log(
-      `bootstrap complete: source=${path.basename(sourcePath)} tools=${assignedTools.length}`,
+      `v2 bootstrap complete: role=${role} rules=${resolvedRuleFiles.size} tools=${assignedTools.length}`,
     );
   } catch (err) {
-    log(
-      `bootstrap skipped: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    const message = err instanceof Error ? err.message : String(err);
+    log(`v2 bootstrap failed: ${message}`);
+    throw err;
   }
 }
 
