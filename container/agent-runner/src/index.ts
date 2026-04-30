@@ -64,7 +64,12 @@ interface TokenUsage {
 }
 
 function emptyUsage(): TokenUsage {
-  return { input_tokens: 0, output_tokens: 0, cache_write_tokens: 0, cache_read_tokens: 0 };
+  return {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_write_tokens: 0,
+    cache_read_tokens: 0,
+  };
 }
 
 function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
@@ -94,10 +99,23 @@ function calcCacheHitRate(u: TokenUsage): number {
 function inferOperationLabel(prompt: string, isScheduledTask: boolean): string {
   if (!isScheduledTask) return 'conversation';
   const lower = prompt.toLowerCase();
-  if (lower.includes('session end') || lower.includes('wrapping up') || lower.includes('logging off') || lower.includes('done for today')) return 'session_end';
-  if (lower.includes('daily cycle') || lower.includes('daily coo') || lower.includes('coo briefing') || lower.includes('08:00')) return 'startup';
+  if (
+    lower.includes('session end') ||
+    lower.includes('wrapping up') ||
+    lower.includes('logging off') ||
+    lower.includes('done for today')
+  )
+    return 'session_end';
+  if (
+    lower.includes('daily cycle') ||
+    lower.includes('daily coo') ||
+    lower.includes('coo briefing') ||
+    lower.includes('08:00')
+  )
+    return 'startup';
   if (lower.includes('airtable')) return 'airtable_sync';
-  if (lower.includes('git pull') || lower.includes('github pull')) return 'github_pull';
+  if (lower.includes('git pull') || lower.includes('github pull'))
+    return 'github_pull';
   return 'scheduled_task';
 }
 
@@ -124,21 +142,23 @@ async function logTokenUsage(
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          records: [{
-            fields: {
-              Timestamp: new Date().toISOString(),
-              'Session ID': sessionId,
-              'Operation Label': operationLabel,
-              'Input Tokens': usage.input_tokens,
-              'Output Tokens': usage.output_tokens,
-              'Cache Write Tokens': usage.cache_write_tokens,
-              'Cache Read Tokens': usage.cache_read_tokens,
-              'Cost GBP': costGbp,
-              'Cache Hit Rate %': cacheHitRate,
-              'Is Summary': isSummary,
-              Model: model,
+          records: [
+            {
+              fields: {
+                Timestamp: new Date().toISOString(),
+                'Session ID': sessionId,
+                'Operation Label': operationLabel,
+                'Input Tokens': usage.input_tokens,
+                'Output Tokens': usage.output_tokens,
+                'Cache Write Tokens': usage.cache_write_tokens,
+                'Cache Read Tokens': usage.cache_read_tokens,
+                'Cost GBP': costGbp,
+                'Cache Hit Rate %': cacheHitRate,
+                'Is Summary': isSummary,
+                Model: model,
+              },
             },
-          }],
+          ],
         }),
       },
     );
@@ -146,7 +166,9 @@ async function logTokenUsage(
       const text = await res.text();
       log(`Token log failed ${res.status}: ${text.slice(0, 200)}`);
     } else {
-      log(`Token logged: ${operationLabel}${isSummary ? ' [summary]' : ''} in=${usage.input_tokens} out=${usage.output_tokens} cw=${usage.cache_write_tokens} cr=${usage.cache_read_tokens} cost=GBP${costGbp} cache=${cacheHitRate}%`);
+      log(
+        `Token logged: ${operationLabel}${isSummary ? ' [summary]' : ''} in=${usage.input_tokens} out=${usage.output_tokens} cw=${usage.cache_write_tokens} cr=${usage.cache_read_tokens} cost=GBP${costGbp} cache=${cacheHitRate}%`,
+      );
     }
   } catch (err) {
     log(`Token log error: ${err instanceof Error ? err.message : String(err)}`);
@@ -195,7 +217,9 @@ async function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = '';
     process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (chunk) => { data += chunk; });
+    process.stdin.on('data', (chunk) => {
+      data += chunk;
+    });
     process.stdin.on('end', () => resolve(data));
     process.stdin.on('error', reject);
   });
@@ -214,16 +238,26 @@ function log(message: string): void {
   console.error(`[agent-runner] ${message}`);
 }
 
-function getSessionSummary(sessionId: string, transcriptPath: string): string | null {
+function getSessionSummary(
+  sessionId: string,
+  transcriptPath: string,
+): string | null {
   const projectDir = path.dirname(transcriptPath);
   const indexPath = path.join(projectDir, 'sessions-index.json');
-  if (!fs.existsSync(indexPath)) { log(`Sessions index not found at ${indexPath}`); return null; }
+  if (!fs.existsSync(indexPath)) {
+    log(`Sessions index not found at ${indexPath}`);
+    return null;
+  }
   try {
-    const index: SessionsIndex = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+    const index: SessionsIndex = JSON.parse(
+      fs.readFileSync(indexPath, 'utf-8'),
+    );
     const entry = index.entries.find((e) => e.sessionId === sessionId);
     if (entry?.summary) return entry.summary;
   } catch (err) {
-    log(`Failed to read sessions index: ${err instanceof Error ? err.message : String(err)}`);
+    log(
+      `Failed to read sessions index: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
   return null;
 }
@@ -233,11 +267,17 @@ function createPreCompactHook(assistantName?: string): HookCallback {
     const preCompact = input as PreCompactHookInput;
     const transcriptPath = preCompact.transcript_path;
     const sessionId = preCompact.session_id;
-    if (!transcriptPath || !fs.existsSync(transcriptPath)) { log('No transcript found for archiving'); return {}; }
+    if (!transcriptPath || !fs.existsSync(transcriptPath)) {
+      log('No transcript found for archiving');
+      return {};
+    }
     try {
       const content = fs.readFileSync(transcriptPath, 'utf-8');
       const messages = parseTranscript(content);
-      if (messages.length === 0) { log('No messages to archive'); return {}; }
+      if (messages.length === 0) {
+        log('No messages to archive');
+        return {};
+      }
       const summary = getSessionSummary(sessionId, transcriptPath);
       const name = summary ? sanitizeFilename(summary) : generateFallbackName();
       const conversationsDir = '/workspace/group/conversations';
@@ -245,18 +285,28 @@ function createPreCompactHook(assistantName?: string): HookCallback {
       const date = new Date().toISOString().split('T')[0];
       const filename = `${date}-${name}.md`;
       const filePath = path.join(conversationsDir, filename);
-      const markdown = formatTranscriptMarkdown(messages, summary, assistantName);
+      const markdown = formatTranscriptMarkdown(
+        messages,
+        summary,
+        assistantName,
+      );
       fs.writeFileSync(filePath, markdown);
       log(`Archived conversation to ${filePath}`);
     } catch (err) {
-      log(`Failed to archive transcript: ${err instanceof Error ? err.message : String(err)}`);
+      log(
+        `Failed to archive transcript: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
     return {};
   };
 }
 
 function sanitizeFilename(summary: string): string {
-  return summary.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50);
+  return summary
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50);
 }
 
 function generateFallbackName(): string {
@@ -264,7 +314,10 @@ function generateFallbackName(): string {
   return `conversation-${time.getHours().toString().padStart(2, '0')}${time.getMinutes().toString().padStart(2, '0')}`;
 }
 
-interface ParsedMessage { role: 'user' | 'assistant'; content: string; }
+interface ParsedMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
 
 function parseTranscript(content: string): ParsedMessage[] {
   const messages: ParsedMessage[] = [];
@@ -273,12 +326,17 @@ function parseTranscript(content: string): ParsedMessage[] {
     try {
       const entry = JSON.parse(line);
       if (entry.type === 'user' && entry.message?.content) {
-        const text = typeof entry.message.content === 'string'
-          ? entry.message.content
-          : entry.message.content.map((c: { text?: string }) => c.text || '').join('');
+        const text =
+          typeof entry.message.content === 'string'
+            ? entry.message.content
+            : entry.message.content
+                .map((c: { text?: string }) => c.text || '')
+                .join('');
         if (text) messages.push({ role: 'user', content: text });
       } else if (entry.type === 'assistant' && entry.message?.content) {
-        const textParts = entry.message.content.filter((c: { type: string }) => c.type === 'text').map((c: { text: string }) => c.text);
+        const textParts = entry.message.content
+          .filter((c: { type: string }) => c.type === 'text')
+          .map((c: { text: string }) => c.text);
         const text = textParts.join('');
         if (text) messages.push({ role: 'assistant', content: text });
       }
@@ -287,9 +345,20 @@ function parseTranscript(content: string): ParsedMessage[] {
   return messages;
 }
 
-function formatTranscriptMarkdown(messages: ParsedMessage[], title?: string | null, assistantName?: string): string {
+function formatTranscriptMarkdown(
+  messages: ParsedMessage[],
+  title?: string | null,
+  assistantName?: string,
+): string {
   const now = new Date();
-  const formatDateTime = (d: Date) => d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+  const formatDateTime = (d: Date) =>
+    d.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
   const lines: string[] = [];
   lines.push(`# ${title || 'Conversation'}`);
   lines.push('');
@@ -299,7 +368,10 @@ function formatTranscriptMarkdown(messages: ParsedMessage[], title?: string | nu
   lines.push('');
   for (const msg of messages) {
     const sender = msg.role === 'user' ? 'User' : assistantName || 'Assistant';
-    const content = msg.content.length > 2000 ? msg.content.slice(0, 2000) + '...' : msg.content;
+    const content =
+      msg.content.length > 2000
+        ? msg.content.slice(0, 2000) + '...'
+        : msg.content;
     lines.push(`**${sender}**: ${content}`);
     lines.push('');
   }
@@ -308,7 +380,9 @@ function formatTranscriptMarkdown(messages: ParsedMessage[], title?: string | nu
 
 function shouldClose(): boolean {
   if (fs.existsSync(IPC_INPUT_CLOSE_SENTINEL)) {
-    try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { }
+    try {
+      fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL);
+    } catch {}
     return true;
   }
   return false;
@@ -317,7 +391,10 @@ function shouldClose(): boolean {
 function drainIpcInput(): string[] {
   try {
     fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
-    const files = fs.readdirSync(IPC_INPUT_DIR).filter((f) => f.endsWith('.json')).sort();
+    const files = fs
+      .readdirSync(IPC_INPUT_DIR)
+      .filter((f) => f.endsWith('.json'))
+      .sort();
     const messages: string[] = [];
     for (const file of files) {
       const filePath = path.join(IPC_INPUT_DIR, file);
@@ -326,8 +403,12 @@ function drainIpcInput(): string[] {
         fs.unlinkSync(filePath);
         if (data.type === 'message' && data.text) messages.push(data.text);
       } catch (err) {
-        log(`Failed to process input file ${file}: ${err instanceof Error ? err.message : String(err)}`);
-        try { fs.unlinkSync(filePath); } catch { }
+        log(
+          `Failed to process input file ${file}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        try {
+          fs.unlinkSync(filePath);
+        } catch {}
       }
     }
     return messages;
@@ -337,7 +418,12 @@ function drainIpcInput(): string[] {
   }
 }
 
-interface ActiveSession { containerId: string; started: string; type: string; repos?: string[]; }
+interface ActiveSession {
+  containerId: string;
+  started: string;
+  type: string;
+  repos?: string[];
+}
 
 function readSessionAwareness(ownContainerId?: string): string {
   const awarenessPath = '/workspace/ipc/active_sessions.json';
@@ -350,13 +436,22 @@ function readSessionAwareness(ownContainerId?: string): string {
     if (!Array.isArray(sessions) || sessions.length === 0) return '';
     const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
     const cutoff = Date.now() - TWO_HOURS_MS;
-    const recent = sessions.filter((s) => new Date(s.started).getTime() > cutoff);
-    const others = ownContainerId ? recent.filter((s) => s.containerId !== ownContainerId) : recent;
+    const recent = sessions.filter(
+      (s) => new Date(s.started).getTime() > cutoff,
+    );
+    const others = ownContainerId
+      ? recent.filter((s) => s.containerId !== ownContainerId)
+      : recent;
     if (others.length === 0) return '';
-    const lines = others.map((s) => `  <session containerId="${s.containerId}" started="${s.started}" type="${s.type}"${s.repos?.length ? ` repos="${s.repos.join(', ')}"` : ''} />`);
+    const lines = others.map(
+      (s) =>
+        `  <session containerId="${s.containerId}" started="${s.started}" type="${s.type}"${s.repos?.length ? ` repos="${s.repos.join(', ')}"` : ''} />`,
+    );
     return `<active-sessions>\n${lines.join('\n')}\n</active-sessions>`;
   } catch (err) {
-    log(`Failed to read session awareness: ${err instanceof Error ? err.message : String(err)}`);
+    log(
+      `Failed to read session awareness: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return '';
   }
 }
@@ -364,9 +459,15 @@ function readSessionAwareness(ownContainerId?: string): string {
 function waitForIpcMessage(): Promise<string | null> {
   return new Promise((resolve) => {
     const poll = () => {
-      if (shouldClose()) { resolve(null); return; }
+      if (shouldClose()) {
+        resolve(null);
+        return;
+      }
       const messages = drainIpcInput();
-      if (messages.length > 0) { resolve(messages.join('\n')); return; }
+      if (messages.length > 0) {
+        resolve(messages.join('\n'));
+        return;
+      }
       setTimeout(poll, IPC_POLL_MS);
     };
     poll();
@@ -380,7 +481,12 @@ async function runQuery(
   containerInput: ContainerInput,
   sdkEnv: Record<string, string | undefined>,
   resumeAt?: string,
-): Promise<{ newSessionId?: string; lastAssistantUuid?: string; closedDuringQuery: boolean; usage: TokenUsage; }> {
+): Promise<{
+  newSessionId?: string;
+  lastAssistantUuid?: string;
+  closedDuringQuery: boolean;
+  usage: TokenUsage;
+}> {
   const stream = new MessageStream();
   stream.push(prompt);
 
@@ -388,9 +494,18 @@ async function runQuery(
   let closedDuringQuery = false;
   const pollIpcDuringQuery = () => {
     if (!ipcPolling) return;
-    if (shouldClose()) { log('Close sentinel detected during query, ending stream'); closedDuringQuery = true; stream.end(); ipcPolling = false; return; }
+    if (shouldClose()) {
+      log('Close sentinel detected during query, ending stream');
+      closedDuringQuery = true;
+      stream.end();
+      ipcPolling = false;
+      return;
+    }
     const messages = drainIpcInput();
-    for (const text of messages) { log(`Piping IPC message into active query (${text.length} chars)`); stream.push(text); }
+    for (const text of messages) {
+      log(`Piping IPC message into active query (${text.length} chars)`);
+      stream.push(text);
+    }
     setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
   };
   setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
@@ -413,7 +528,9 @@ async function runQuery(
   if (!containerInput.isMain) {
     const playbookContextPath = '/workspace/extra/memory/playbook-context.txt';
     if (fs.existsSync(playbookContextPath)) {
-      const playbookContext = fs.readFileSync(playbookContextPath, 'utf-8').trim();
+      const playbookContext = fs
+        .readFileSync(playbookContextPath, 'utf-8')
+        .trim();
       if (playbookContext) {
         globalClaudeMd = (globalClaudeMd ?? '') + '\n\n' + playbookContext;
       }
@@ -428,7 +545,8 @@ async function runQuery(
       if (fs.statSync(fullPath).isDirectory()) extraDirs.push(fullPath);
     }
   }
-  if (extraDirs.length > 0) log(`Additional directories: ${extraDirs.join(', ')}`);
+  if (extraDirs.length > 0)
+    log(`Additional directories: ${extraDirs.join(', ')}`);
 
   for await (const message of query({
     prompt: stream,
@@ -437,8 +555,35 @@ async function runQuery(
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
       resume: sessionId,
       resumeSessionAt: resumeAt,
-      systemPrompt: globalClaudeMd ? { type: 'preset' as const, preset: 'claude_code' as const, append: globalClaudeMd } : undefined,
-      allowedTools: ['Bash','Read','Write','Edit','Glob','Grep','WebSearch','WebFetch','Task','TaskOutput','TaskStop','TeamCreate','TeamDelete','SendMessage','TodoWrite','ToolSearch','Skill','NotebookEdit','mcp__nanoclaw__*','mcp__pm-agent__*'],
+      systemPrompt: globalClaudeMd
+        ? {
+            type: 'preset' as const,
+            preset: 'claude_code' as const,
+            append: globalClaudeMd,
+          }
+        : undefined,
+      allowedTools: [
+        'Bash',
+        'Read',
+        'Write',
+        'Edit',
+        'Glob',
+        'Grep',
+        'WebSearch',
+        'WebFetch',
+        'Task',
+        'TaskOutput',
+        'TaskStop',
+        'TeamCreate',
+        'TeamDelete',
+        'SendMessage',
+        'TodoWrite',
+        'ToolSearch',
+        'Skill',
+        'NotebookEdit',
+        'mcp__nanoclaw__*',
+        'mcp__pm-agent__*',
+      ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
@@ -467,16 +612,20 @@ async function runQuery(
             SESSION_STATE_PATH: '/workspace/group/session-state.json',
             SCORING_CONFIG_PATH: '/workspace/group/scoring/dimensions.json',
             IPC_INPUT_DIR: '/workspace/ipc/input',
-            GSD_TOOLS_PATH: '/home/node/.claude/get-shit-done/bin/gsd-tools.cjs',
+            GSD_TOOLS_PATH:
+              '/home/node/.claude/get-shit-done/bin/gsd-tools.cjs',
             GMS_DASHBOARD_URL: 'https://gms.gorillahub.co.uk',
             INTAKE_MODE: (sdkEnv.INTAKE_MODE as string) || 'preview',
             MEMORY_DIR: '/workspace/extra/memory',
             GITHUB_TOKEN: (sdkEnv.GITHUB_TOKEN as string) || '',
-            GOOGLE_CHAT_SA_KEY_PATH: '/workspace/extra/service-accounts/google-chat-sa.json',
+            GOOGLE_CHAT_SA_KEY_PATH:
+              '/workspace/extra/service-accounts/google-chat-sa.json',
             N8N_BASE_URL: (sdkEnv.N8N_BASE_URL as string) || '',
             N8N_API_KEY: (sdkEnv.N8N_API_KEY as string) || '',
-            LINKEDIN_COOKIES_CRAIG: (sdkEnv.LINKEDIN_COOKIES_CRAIG as string) || '',
-            LINKEDIN_COOKIES_HOLLY: (sdkEnv.LINKEDIN_COOKIES_HOLLY as string) || '',
+            LINKEDIN_COOKIES_CRAIG:
+              (sdkEnv.LINKEDIN_COOKIES_CRAIG as string) || '',
+            LINKEDIN_COOKIES_HOLLY:
+              (sdkEnv.LINKEDIN_COOKIES_HOLLY as string) || '',
             LINKEDIN_CSRF_CRAIG: (sdkEnv.LINKEDIN_CSRF_CRAIG as string) || '',
             LINKEDIN_CSRF_HOLLY: (sdkEnv.LINKEDIN_CSRF_HOLLY as string) || '',
             LINKEDIN_TOKEN_CRAIG: (sdkEnv.LINKEDIN_TOKEN_CRAIG as string) || '',
@@ -489,7 +638,8 @@ async function runQuery(
             METRICOOL_BLOG_ID: (sdkEnv.METRICOOL_BLOG_ID as string) || '',
             FREEPIK_API_KEY: (sdkEnv.FREEPIK_API_KEY as string) || '',
             OVH_APPLICATION_KEY: (sdkEnv.OVH_APPLICATION_KEY as string) || '',
-            OVH_APPLICATION_SECRET: (sdkEnv.OVH_APPLICATION_SECRET as string) || '',
+            OVH_APPLICATION_SECRET:
+              (sdkEnv.OVH_APPLICATION_SECRET as string) || '',
             OVH_CONSUMER_KEY: (sdkEnv.OVH_CONSUMER_KEY as string) || '',
             OVH_ENDPOINT: (sdkEnv.OVH_ENDPOINT as string) || 'ovh-eu',
           },
@@ -504,7 +654,10 @@ async function runQuery(
     },
   })) {
     messageCount++;
-    const msgType = message.type === 'system' ? `system/${(message as { subtype?: string }).subtype}` : message.type;
+    const msgType =
+      message.type === 'system'
+        ? `system/${(message as { subtype?: string }).subtype}`
+        : message.type;
     log(`[msg #${messageCount}] type=${msgType}`);
 
     if (message.type === 'assistant' && 'uuid' in message) {
@@ -516,7 +669,8 @@ async function runQuery(
       if (apiUsage) {
         queryUsage.input_tokens += apiUsage.input_tokens || 0;
         queryUsage.output_tokens += apiUsage.output_tokens || 0;
-        queryUsage.cache_write_tokens += apiUsage.cache_creation_input_tokens || 0;
+        queryUsage.cache_write_tokens +=
+          apiUsage.cache_creation_input_tokens || 0;
         queryUsage.cache_read_tokens += apiUsage.cache_read_input_tokens || 0;
       }
     }
@@ -526,69 +680,126 @@ async function runQuery(
       log(`Session initialized: ${newSessionId}`);
     }
 
-    if (message.type === 'system' && (message as { subtype?: string }).subtype === 'task_notification') {
-      const tn = message as { task_id: string; status: string; summary: string; };
-      log(`Task notification: task=${tn.task_id} status=${tn.status} summary=${tn.summary}`);
+    if (
+      message.type === 'system' &&
+      (message as { subtype?: string }).subtype === 'task_notification'
+    ) {
+      const tn = message as {
+        task_id: string;
+        status: string;
+        summary: string;
+      };
+      log(
+        `Task notification: task=${tn.task_id} status=${tn.status} summary=${tn.summary}`,
+      );
     }
 
     if (message.type === 'result') {
       resultCount++;
       const msgAny = message as any;
-      const textResult = 'result' in message ? (message as { result?: string }).result : null;
-      log(`Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
+      const textResult =
+        'result' in message ? (message as { result?: string }).result : null;
+      log(
+        `Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`,
+      );
       if (msgAny.usage) {
-        queryUsage.input_tokens = msgAny.usage.input_tokens || queryUsage.input_tokens;
-        queryUsage.output_tokens = msgAny.usage.output_tokens || queryUsage.output_tokens;
-        queryUsage.cache_write_tokens = msgAny.usage.cache_creation_input_tokens || queryUsage.cache_write_tokens;
-        queryUsage.cache_read_tokens = msgAny.usage.cache_read_input_tokens || queryUsage.cache_read_tokens;
+        queryUsage.input_tokens =
+          msgAny.usage.input_tokens || queryUsage.input_tokens;
+        queryUsage.output_tokens =
+          msgAny.usage.output_tokens || queryUsage.output_tokens;
+        queryUsage.cache_write_tokens =
+          msgAny.usage.cache_creation_input_tokens ||
+          queryUsage.cache_write_tokens;
+        queryUsage.cache_read_tokens =
+          msgAny.usage.cache_read_input_tokens || queryUsage.cache_read_tokens;
       }
-      writeOutput({ status: 'success', result: textResult || null, newSessionId });
+      writeOutput({
+        status: 'success',
+        result: textResult || null,
+        newSessionId,
+      });
     }
   }
 
   ipcPolling = false;
-  log(`Query done. Messages: ${messageCount}, results: ${resultCount}, closedDuringQuery: ${closedDuringQuery}`);
-  log(`Query usage: in=${queryUsage.input_tokens} out=${queryUsage.output_tokens} cw=${queryUsage.cache_write_tokens} cr=${queryUsage.cache_read_tokens}`);
-  return { newSessionId, lastAssistantUuid, closedDuringQuery, usage: queryUsage };
+  log(
+    `Query done. Messages: ${messageCount}, results: ${resultCount}, closedDuringQuery: ${closedDuringQuery}`,
+  );
+  log(
+    `Query usage: in=${queryUsage.input_tokens} out=${queryUsage.output_tokens} cw=${queryUsage.cache_write_tokens} cr=${queryUsage.cache_read_tokens}`,
+  );
+  return {
+    newSessionId,
+    lastAssistantUuid,
+    closedDuringQuery,
+    usage: queryUsage,
+  };
 }
 
-interface ScriptResult { wakeAgent: boolean; data?: unknown; }
+interface ScriptResult {
+  wakeAgent: boolean;
+  data?: unknown;
+}
 const SCRIPT_TIMEOUT_MS = 30_000;
 
 async function runScript(script: string): Promise<ScriptResult | null> {
   const scriptPath = '/tmp/task-script.sh';
   fs.writeFileSync(scriptPath, script, { mode: 0o755 });
   return new Promise((resolve) => {
-    execFile('bash', [scriptPath], { timeout: SCRIPT_TIMEOUT_MS, maxBuffer: 1024 * 1024, env: process.env }, (error, stdout, stderr) => {
-      if (stderr) log(`Script stderr: ${stderr.slice(0, 500)}`);
-      if (error) { log(`Script error: ${error.message}`); return resolve(null); }
-      const lines = stdout.trim().split('\n');
-      const lastLine = lines[lines.length - 1];
-      if (!lastLine) { log('Script produced no output'); return resolve(null); }
-      try {
-        const result = JSON.parse(lastLine);
-        if (typeof result.wakeAgent !== 'boolean') { log(`Script output missing wakeAgent boolean: ${lastLine.slice(0, 200)}`); return resolve(null); }
-        resolve(result as ScriptResult);
-      } catch {
-        log(`Script output is not valid JSON: ${lastLine.slice(0, 200)}`);
-        resolve(null);
-      }
-    });
+    execFile(
+      'bash',
+      [scriptPath],
+      { timeout: SCRIPT_TIMEOUT_MS, maxBuffer: 1024 * 1024, env: process.env },
+      (error, stdout, stderr) => {
+        if (stderr) log(`Script stderr: ${stderr.slice(0, 500)}`);
+        if (error) {
+          log(`Script error: ${error.message}`);
+          return resolve(null);
+        }
+        const lines = stdout.trim().split('\n');
+        const lastLine = lines[lines.length - 1];
+        if (!lastLine) {
+          log('Script produced no output');
+          return resolve(null);
+        }
+        try {
+          const result = JSON.parse(lastLine);
+          if (typeof result.wakeAgent !== 'boolean') {
+            log(
+              `Script output missing wakeAgent boolean: ${lastLine.slice(0, 200)}`,
+            );
+            return resolve(null);
+          }
+          resolve(result as ScriptResult);
+        } catch {
+          log(`Script output is not valid JSON: ${lastLine.slice(0, 200)}`);
+          resolve(null);
+        }
+      },
+    );
   });
 }
 
-function bootstrapV2ConfigForSession(): void {
+function bootstrapSessionConfig(): void {
   try {
-    const groupConfigPath = '/workspace/group/.claude/config.md';
-    if (!fs.existsSync(groupConfigPath)) return;
+    // Preferred source of truth: Drive-synced CLAUDE.md in group root.
+    // Backward-compatible fallback: legacy .claude/config.md if present.
+    const claudePath = '/workspace/group/CLAUDE.md';
+    const legacyConfigPath = '/workspace/group/.claude/config.md';
+    const sourcePath = fs.existsSync(claudePath)
+      ? claudePath
+      : fs.existsSync(legacyConfigPath)
+        ? legacyConfigPath
+        : null;
 
-    const raw = fs.readFileSync(groupConfigPath, 'utf-8');
-    if (!/^config_version:\s*2\b/m.test(raw)) return;
+    if (!sourcePath) return;
 
+    const raw = fs.readFileSync(sourcePath, 'utf-8');
     const sessionClaudeDir = '/home/node/.claude';
     fs.mkdirSync(sessionClaudeDir, { recursive: true });
 
-    // Parse assigned_tools list from YAML-style block (supports empty/null)
+    // Parse optional assigned_tools YAML-style block if present.
+    // If absent, inventory defaults to empty.
     const lines = raw.split('\n');
     const assignedTools: string[] = [];
     let inAssignedTools = false;
@@ -600,7 +811,6 @@ function bootstrapV2ConfigForSession(): void {
       }
       if (!inAssignedTools) continue;
 
-      // Stop when next top-level config key starts
       if (/^[a-z_]+:\s*/.test(line)) break;
 
       const m = line.match(/^\s*-\s*(.+?)\s*$/);
@@ -611,7 +821,9 @@ function bootstrapV2ConfigForSession(): void {
 
     const inventory = {
       version: 1,
-      source: 'assigned_tools',
+      source: sourcePath.endsWith('CLAUDE.md')
+        ? 'claude_md'
+        : 'legacy_config_md',
       count: assignedTools.length,
       items: assignedTools.map((tool) => ({
         slug: tool,
@@ -626,7 +838,7 @@ function bootstrapV2ConfigForSession(): void {
       JSON.stringify(inventory, null, 2),
     );
 
-    // Mirror universal rules from group into session .claude/rules/universal
+    // Optional: mirror universal rules if present in mounted group path
     const srcUniversalRules = '/workspace/group/.claude/rules/universal';
     const dstUniversalRules = '/home/node/.claude/rules/universal';
     if (fs.existsSync(srcUniversalRules)) {
@@ -634,10 +846,12 @@ function bootstrapV2ConfigForSession(): void {
       fs.cpSync(srcUniversalRules, dstUniversalRules, { recursive: true });
     }
 
-    log(`v2 bootstrap complete: tools=${assignedTools.length}`);
+    log(
+      `bootstrap complete: source=${path.basename(sourcePath)} tools=${assignedTools.length}`,
+    );
   } catch (err) {
     log(
-      `v2 bootstrap skipped: ${err instanceof Error ? err.message : String(err)}`,
+      `bootstrap skipped: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 }
@@ -647,10 +861,16 @@ async function main(): Promise<void> {
   try {
     const stdinData = await readStdin();
     containerInput = JSON.parse(stdinData);
-    try { fs.unlinkSync('/tmp/input.json'); } catch { }
+    try {
+      fs.unlinkSync('/tmp/input.json');
+    } catch {}
     log(`Received input for group: ${containerInput.groupFolder}`);
   } catch (err) {
-    writeOutput({ status: 'error', result: null, error: `Failed to parse input: ${err instanceof Error ? err.message : String(err)}` });
+    writeOutput({
+      status: 'error',
+      result: null,
+      error: `Failed to parse input: ${err instanceof Error ? err.message : String(err)}`,
+    });
     process.exit(1);
   }
 
@@ -660,34 +880,43 @@ async function main(): Promise<void> {
   }
 
   _airtableApiKey = containerInput.secrets?.AIRTABLE_API_KEY;
-  bootstrapV2ConfigForSession();
+  bootstrapSessionConfig();
 
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const mcpServerPath = path.join(__dirname, 'ipc-mcp-stdio.js');
 
   let sessionId = containerInput.sessionId;
   fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
-  try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { }
+  try {
+    fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL);
+  } catch {}
 
   let prompt = containerInput.prompt;
   if (containerInput.isScheduledTask) {
     prompt = `[SCHEDULED TASK - The following message was sent automatically and is not coming directly from the user or group.]\n\n${prompt}`;
   }
   const pending = drainIpcInput();
-  if (pending.length > 0) { log(`Draining ${pending.length} pending IPC messages into initial prompt`); prompt += '\n' + pending.join('\n'); }
+  if (pending.length > 0) {
+    log(`Draining ${pending.length} pending IPC messages into initial prompt`);
+    prompt += '\n' + pending.join('\n');
+  }
 
   const awarenessContext = readSessionAwareness(containerInput.containerId);
   if (awarenessContext) {
     prompt = `${awarenessContext}\n\n${prompt}`;
     const sessionCount = (awarenessContext.match(/<session /g) || []).length;
-    log(`Injected session awareness (${sessionCount} other active session${sessionCount !== 1 ? 's' : ''})`);
+    log(
+      `Injected session awareness (${sessionCount} other active session${sessionCount !== 1 ? 's' : ''})`,
+    );
   }
 
   if (containerInput.script && containerInput.isScheduledTask) {
     log('Running task script...');
     const scriptResult = await runScript(containerInput.script);
     if (!scriptResult || !scriptResult.wakeAgent) {
-      const reason = scriptResult ? 'wakeAgent=false' : 'script error/no output';
+      const reason = scriptResult
+        ? 'wakeAgent=false'
+        : 'script error/no output';
       log(`Script decided not to wake agent: ${reason}`);
       writeOutput({ status: 'success', result: null });
       return;
@@ -697,36 +926,71 @@ async function main(): Promise<void> {
   }
 
   let sessionTotalUsage: TokenUsage = emptyUsage();
-  const operationLabel = inferOperationLabel(containerInput.prompt, containerInput.isScheduledTask ?? false);
+  const operationLabel = inferOperationLabel(
+    containerInput.prompt,
+    containerInput.isScheduledTask ?? false,
+  );
 
   let resumeAt: string | undefined;
   try {
     while (true) {
-      log(`Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`);
-      const queryResult = await runQuery(prompt, sessionId, mcpServerPath, containerInput, sdkEnv, resumeAt);
+      log(
+        `Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`,
+      );
+      const queryResult = await runQuery(
+        prompt,
+        sessionId,
+        mcpServerPath,
+        containerInput,
+        sdkEnv,
+        resumeAt,
+      );
       if (queryResult.newSessionId) sessionId = queryResult.newSessionId;
-      if (queryResult.lastAssistantUuid) resumeAt = queryResult.lastAssistantUuid;
+      if (queryResult.lastAssistantUuid)
+        resumeAt = queryResult.lastAssistantUuid;
 
-      await logTokenUsage(sessionId || 'unknown', operationLabel, queryResult.usage, containerInput.model || 'claude-sonnet-4-6');
+      await logTokenUsage(
+        sessionId || 'unknown',
+        operationLabel,
+        queryResult.usage,
+        containerInput.model || 'claude-sonnet-4-6',
+      );
       sessionTotalUsage = addUsage(sessionTotalUsage, queryResult.usage);
 
-      if (queryResult.closedDuringQuery) { log('Close sentinel consumed during query, exiting'); break; }
+      if (queryResult.closedDuringQuery) {
+        log('Close sentinel consumed during query, exiting');
+        break;
+      }
       writeOutput({ status: 'success', result: null, newSessionId: sessionId });
       log('Query ended, waiting for next IPC message...');
 
       const nextMessage = await waitForIpcMessage();
-      if (nextMessage === null) { log('Close sentinel received, exiting'); break; }
+      if (nextMessage === null) {
+        log('Close sentinel received, exiting');
+        break;
+      }
       log(`Got new message (${nextMessage.length} chars), starting new query`);
       prompt = nextMessage;
     }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     log(`Agent error: ${errorMessage}`);
-    writeOutput({ status: 'error', result: null, newSessionId: sessionId, error: errorMessage });
+    writeOutput({
+      status: 'error',
+      result: null,
+      newSessionId: sessionId,
+      error: errorMessage,
+    });
     process.exit(1);
   }
 
-  await logTokenUsage(sessionId || 'unknown', 'session_summary', sessionTotalUsage, containerInput.model || 'claude-sonnet-4-6', true);
+  await logTokenUsage(
+    sessionId || 'unknown',
+    'session_summary',
+    sessionTotalUsage,
+    containerInput.model || 'claude-sonnet-4-6',
+    true,
+  );
 }
 
 main();
