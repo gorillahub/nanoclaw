@@ -360,6 +360,10 @@ export async function runContainerAgent(
   // global has no foo.md). Same-named files are overwritten to keep
   // global as the source of truth for universal content.
   if (!input.isMain) {
+    logger.info(
+      { group: group.folder },
+      'Phase 2 spawn-time global copy starting',
+    );
     const globalClaudeDir = path.join(GROUPS_DIR, 'global', '.claude');
     if (fs.existsSync(globalClaudeDir)) {
       const groupClaudeDir = path.join(groupDir, '.claude');
