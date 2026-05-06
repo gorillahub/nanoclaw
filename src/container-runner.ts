@@ -365,9 +365,23 @@ export async function runContainerAgent(
   // (e.g. a per-agent override at .claude/rules/foo.md stays even if
   // global has no foo.md). Same-named files are overwritten to keep
   // global as the source of truth for universal content.
-  if (!input.isMain) {
+  // Default: non-main groups inherit universal content; main groups do not.
+  // Main groups can opt-in by setting any inherit_universal_*: true flag in
+  // their .claude/config.md (e.g. Holly).
+  let shouldInheritUniversal = !input.isMain;
+  if (input.isMain) {
+    const configPath = path.join(groupDir, '.claude', 'config.md');
+    if (fs.existsSync(configPath)) {
+      const config = fs.readFileSync(configPath, 'utf-8');
+      if (/inherit_universal_(?:rules|routines|skills):\s*true/.test(config)) {
+        shouldInheritUniversal = true;
+      }
+    }
+  }
+
+  if (shouldInheritUniversal) {
     logger.info(
-      { group: group.folder },
+      { group: group.folder, isMain: input.isMain },
       'Phase 2 spawn-time global copy starting',
     );
     const globalClaudeDir = path.join(GROUPS_DIR, 'global', '.claude');
