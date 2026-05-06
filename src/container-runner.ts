@@ -349,11 +349,17 @@ export async function runContainerAgent(
   //
   // drive-sync.timer (gorillahubos/scripts/drive-sync/) keeps
   // /opt/nanoclaw/groups/global/.claude/{rules,routines,skills}/ fresh from
-  // Drive every 5 minutes. We copy those flat subdir contents into this
-  // group's .claude/<same>/ at each spawn so Claude Code reads universal
+  // Drive every 5 minutes. We copy those subdir contents into this group's
+  // .claude/<same>/ at each spawn so Claude Code reads universal
   // rules/routines/skills via standard project-dir discovery
   // (/workspace/group/.claude/...). Skipped for the main group (its dir is
   // canonical and not derived from Drive).
+  //
+  // Subdir-specific behaviour:
+  //   - rules/ and routines/ stay flat — only top-level files are copied.
+  //   - skills/ mirrors subfolder structure (folder-per-skill, Claude
+  //     Code's <skill-name>/SKILL.md convention). Top-level files at the
+  //     root of skills/ are also copied (e.g. an optional README.md).
   //
   // Existing per-agent files that do not collide on name are preserved
   // (e.g. a per-agent override at .claude/rules/foo.md stays even if
@@ -374,11 +380,26 @@ export async function runContainerAgent(
         const dst = path.join(groupClaudeDir, subdir);
         fs.mkdirSync(dst, { recursive: true });
         for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-          if (!entry.isFile()) continue;
-          fs.copyFileSync(
-            path.join(src, entry.name),
-            path.join(dst, entry.name),
-          );
+          if (entry.isFile()) {
+            fs.copyFileSync(
+              path.join(src, entry.name),
+              path.join(dst, entry.name),
+            );
+            continue;
+          }
+          if (entry.isDirectory() && subdir === 'skills') {
+            // Folder-per-skill: mirror the whole skill directory verbatim
+            // so SKILL.md and any supporting files land together.
+            fs.cpSync(path.join(src, entry.name), path.join(dst, entry.name), {
+              recursive: true,
+              force: true,
+            });
+            logger.info(
+              { group: group.folder, skill: entry.name },
+              'spawn-time: copied skill folder',
+            );
+          }
+          // rules/ and routines/ ignore directories on purpose.
         }
       }
     }
