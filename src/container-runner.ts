@@ -344,6 +344,81 @@ export async function runContainerAgent(
   const groupDir = resolveGroupFolderPath(group.folder);
   fs.mkdirSync(groupDir, { recursive: true });
 
+  // Phase 2 (agent-drive-loading, gorillahubos): compose universal content
+  // into this agent's .claude/ before the container spawns.
+  //
+  // drive-sync.timer (gorillahubos/scripts/drive-sync/) keeps
+  // /opt/nanoclaw/groups/global/.claude/{rules,routines,skills}/ fresh from
+  // Drive every 5 minutes. We copy those subdir contents into this group's
+  // .claude/<same>/ at each spawn so Claude Code reads universal
+  // rules/routines/skills via standard project-dir discovery
+  // (/workspace/group/.claude/...). Skipped for the main group (its dir is
+  // canonical and not derived from Drive).
+  //
+  // Subdir-specific behaviour:
+  //   - rules/ and routines/ stay flat — only top-level files are copied.
+  //   - skills/ mirrors subfolder structure (folder-per-skill, Claude
+  //     Code's <skill-name>/SKILL.md convention). Top-level files at the
+  //     root of skills/ are also copied (e.g. an optional README.md).
+  //
+  // Existing per-agent files that do not collide on name are preserved
+  // (e.g. a per-agent override at .claude/rules/foo.md stays even if
+  // global has no foo.md). Same-named files are overwritten to keep
+  // global as the source of truth for universal content.
+  // Default: non-main groups inherit universal content; main groups do not.
+  // Main groups can opt-in by setting any inherit_universal_*: true flag in
+  // their .claude/config.md (e.g. Holly).
+  let shouldInheritUniversal = !input.isMain;
+  if (input.isMain) {
+    const configPath = path.join(groupDir, '.claude', 'config.md');
+    if (fs.existsSync(configPath)) {
+      const config = fs.readFileSync(configPath, 'utf-8');
+      if (/inherit_universal_(?:rules|routines|skills):\s*true/.test(config)) {
+        shouldInheritUniversal = true;
+      }
+    }
+  }
+
+  if (shouldInheritUniversal) {
+    logger.info(
+      { group: group.folder, isMain: input.isMain },
+      'Phase 2 spawn-time global copy starting',
+    );
+    const globalClaudeDir = path.join(GROUPS_DIR, 'global', '.claude');
+    if (fs.existsSync(globalClaudeDir)) {
+      const groupClaudeDir = path.join(groupDir, '.claude');
+      fs.mkdirSync(groupClaudeDir, { recursive: true });
+      for (const subdir of ['rules', 'routines', 'skills']) {
+        const src = path.join(globalClaudeDir, subdir);
+        if (!fs.existsSync(src) || !fs.statSync(src).isDirectory()) continue;
+        const dst = path.join(groupClaudeDir, subdir);
+        fs.mkdirSync(dst, { recursive: true });
+        for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+          if (entry.isFile()) {
+            fs.copyFileSync(
+              path.join(src, entry.name),
+              path.join(dst, entry.name),
+            );
+            continue;
+          }
+          if (entry.isDirectory() && subdir === 'skills') {
+            // Folder-per-skill: mirror the whole skill directory verbatim
+            // so SKILL.md and any supporting files land together.
+            fs.cpSync(path.join(src, entry.name), path.join(dst, entry.name), {
+              recursive: true,
+              force: true,
+            });
+            logger.info(
+              { group: group.folder, skill: entry.name },
+              'spawn-time: copied skill folder',
+            );
+          }
+          // rules/ and routines/ ignore directories on purpose.
+        }
+      }
+    }
+  }
+
   const mounts = buildVolumeMounts(group, input.isMain, input.groupFolder);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
