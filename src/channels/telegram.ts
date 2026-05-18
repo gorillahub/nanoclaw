@@ -3,42 +3,47 @@
  *
  * Receives messages via trigger-writer webhook (no polling needed).
  * Sends replies via the Telegram Bot API sendMessage endpoint.
- * Topic-aware: uses explicit threadId when provided, or parses from JID.
  *
- * Reads bot token and chat ID from /opt/nanoclaw/.env directly
- * (NanoClaw's main process doesn't inherit container env vars).
+ * Multi-bot + reply-to-inbound (2026-05):
+ *  - Trigger-writer encodes inbound chat id into the JID:
+ *      telegram:<agent>:<chatId>[:<threadId>]
+ *  - NanoClaw replies to that chatId.
+ *  - Bot token is resolved per agent from group env:
+ *      /opt/nanoclaw/groups/telegram_<agent>/.env (TELEGRAM_BOT_TOKEN)
  *
- * JID format:
- *   "telegram:mygroup"        → general group (no thread)
- *   "telegram:mygroup:42"     → topic with thread ID 42
+ * This avoids using a single global token from /opt/nanoclaw/.env.
  */
 
 import fs from 'fs';
+import path from 'path';
 import { logger } from '../logger.js';
 import { Channel } from '../types.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 
-const ENV_PATH = '/opt/nanoclaw/.env';
+const GROUPS_DIR = '/opt/nanoclaw/groups';
 const MAX_MESSAGE_LENGTH = 4096;
 
-function readEnvValue(key: string): string | undefined {
+function readEnvFileValue(envPath: string, key: string): string | undefined {
   try {
-    const content = fs.readFileSync(ENV_PATH, 'utf-8');
+    const content = fs.readFileSync(envPath, 'utf-8');
     for (const line of content.split('\n')) {
       const trimmed = line.trim();
-      if (trimmed.startsWith('#') || !trimmed.includes('=')) continue;
+      if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('='))
+        continue;
       const eqIdx = trimmed.indexOf('=');
       const k = trimmed.substring(0, eqIdx).trim();
       const v = trimmed.substring(eqIdx + 1).trim();
       if (k === key) return v;
     }
   } catch {
-    // .env not found
+    // ignore missing files
   }
-  return process.env[key];
+  return undefined;
 }
 
-function parseThreadId(value: string | number | undefined): number | undefined {
+function parseThreadId(
+  value: string | number | undefined | null,
+): number | undefined {
   if (value === undefined || value === null) return undefined;
   const parsed = Number.parseInt(String(value), 10);
   return Number.isNaN(parsed) ? undefined : parsed;
@@ -48,8 +53,9 @@ function resolveThreadId(jid: string, threadId?: string): number | undefined {
   const explicit = parseThreadId(threadId);
   if (explicit !== undefined) return explicit;
 
+  // jid may be telegram:<agent>:<chatId>:<threadId>
   const parts = jid.split(':');
-  return parseThreadId(parts[2]);
+  return parseThreadId(parts[3]);
 }
 
 /**
@@ -72,9 +78,7 @@ function splitMessage(text: string): string[] {
     if (splitIdx <= 0 || splitIdx < MAX_MESSAGE_LENGTH * 0.5) {
       splitIdx = remaining.lastIndexOf(' ', MAX_MESSAGE_LENGTH);
     }
-    if (splitIdx <= 0) {
-      splitIdx = MAX_MESSAGE_LENGTH;
-    }
+    if (splitIdx <= 0) splitIdx = MAX_MESSAGE_LENGTH;
 
     chunks.push(remaining.slice(0, splitIdx));
     remaining = remaining.slice(splitIdx).trimStart();
@@ -83,23 +87,41 @@ function splitMessage(text: string): string[] {
   return chunks;
 }
 
+function parseTelegramJid(
+  jid: string,
+): { agent: string; chatId: string; threadIdFromJid?: string } | null {
+  // telegram:<agent>:<chatId>[:<threadId>]
+  const parts = String(jid).split(':');
+  if (parts[0] !== 'telegram') return null;
+  const agent = parts[1];
+  const chatId = parts[2];
+  const threadIdFromJid = parts[3];
+  if (!agent || !chatId) return null;
+  return { agent, chatId, threadIdFromJid };
+}
+
+function getBotTokenForAgent(agent: string): string | undefined {
+  const envPath = path.join(GROUPS_DIR, `telegram_${agent}`, '.env');
+  const token = readEnvFileValue(envPath, 'TELEGRAM_BOT_TOKEN');
+  if (!token) {
+    logger.error(
+      { agent, envPath },
+      'TELEGRAM_BOT_TOKEN missing for telegram agent group',
+    );
+    return undefined;
+  }
+  return token;
+}
+
 export class TelegramChannel implements Channel {
   name = 'telegram';
 
   private connected = false;
-  private botToken: string | undefined;
-  private chatId: string | undefined;
 
   async connect(): Promise<void> {
-    this.botToken = readEnvValue('TELEGRAM_BOT_TOKEN');
-    this.chatId = readEnvValue('TELEGRAM_CHAT_ID');
-
-    if (!this.botToken) {
-      logger.warn('TELEGRAM_BOT_TOKEN not set — Telegram channel disabled');
-      return;
-    }
+    // Resolve bot token per-message from group env.
     this.connected = true;
-    logger.info('Telegram channel connected (webhook mode — no polling)');
+    logger.info('Telegram channel connected (webhook mode — per-agent tokens)');
   }
 
   async sendMessage(
@@ -107,23 +129,32 @@ export class TelegramChannel implements Channel {
     text: string,
     threadId?: string,
   ): Promise<void> {
-    if (!this.connected || !this.botToken || !this.chatId) {
+    if (!this.connected) {
       logger.warn({ jid }, 'Telegram channel not connected, dropping message');
       return;
     }
 
+    const parsed = parseTelegramJid(jid);
+    if (!parsed) {
+      logger.warn({ jid }, 'Telegram invalid jid; dropping message');
+      return;
+    }
+
+    const botToken = getBotTokenForAgent(parsed.agent);
+    if (!botToken) return;
+
     const resolvedThreadId = resolveThreadId(jid, threadId);
     const chunks = splitMessage(text);
 
-    for (const chunk of chunks) {
-      const url = `https://api.telegram.org/bot${this.botToken}/sendMessage`;
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
       const body: Record<string, unknown> = {
-        chat_id: this.chatId,
+        chat_id: parsed.chatId,
         text: chunk,
       };
-      if (resolvedThreadId !== undefined) {
+      if (resolvedThreadId !== undefined)
         body.message_thread_id = resolvedThreadId;
-      }
 
       try {
         const res = await fetch(url, {
@@ -135,7 +166,12 @@ export class TelegramChannel implements Channel {
         if (!res.ok) {
           const errBody = await res.json().catch(() => ({}));
           logger.error(
-            { status: res.status, error: errBody, jid },
+            {
+              status: res.status,
+              error: errBody,
+              jid,
+              agentSlug: parsed.agent,
+            },
             'Telegram sendMessage failed',
           );
           return;
@@ -145,13 +181,16 @@ export class TelegramChannel implements Channel {
           {
             jid,
             threadId: resolvedThreadId ?? 'general',
-            chunk: chunks.indexOf(chunk) + 1,
+            chunk: i + 1,
             total: chunks.length,
           },
           'Telegram message sent',
         );
       } catch (err) {
-        logger.error({ err, jid }, 'Telegram sendMessage fetch error');
+        logger.error(
+          { err, jid, agentSlug: parsed.agent },
+          'Telegram sendMessage fetch error',
+        );
         return;
       }
     }
@@ -171,7 +210,6 @@ export class TelegramChannel implements Channel {
   }
 }
 
-// Register at module level — import triggers registration
 registerChannel('telegram', (_opts: ChannelOpts) => {
   const channel = new TelegramChannel();
   return channel;

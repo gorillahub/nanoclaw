@@ -268,14 +268,24 @@ export async function processTaskIpc(
         data.schedule_value &&
         data.targetJid
       ) {
-        // Resolve the target group from JID, with topic fallback.
-        // Topic JIDs like "telegram:pm-agent:1030" may not have a dedicated
-        // registered group — fall back to the parent "telegram:pm-agent".
+        // Resolve the target group from JID.
+        // We support topic JIDs (telegram:agent:topicId) by falling back to a base group.
+        // IMPORTANT: Telegram chat IDs also look like a 3rd colon segment (telegram:wes:-100123...).
+        // Those should NOT create a new folder or fail auth; they should route to the base group.
         const targetJid = data.targetJid as string;
-        let targetGroupEntry = registeredGroups[targetJid];
+        let groupLookupJid = targetJid;
+        if (groupLookupJid.startsWith('telegram:')) {
+          const parts = groupLookupJid.split(':');
+          // telegram:<agent>:<chatId> → base telegram:<agent>
+          if (parts.length === 3) {
+            groupLookupJid = parts.slice(0, 2).join(':');
+          }
+        }
 
-        if (!targetGroupEntry && targetJid.includes(':')) {
-          const parts = targetJid.split(':');
+        let targetGroupEntry = registeredGroups[groupLookupJid];
+
+        if (!targetGroupEntry && groupLookupJid.includes(':')) {
+          const parts = groupLookupJid.split(':');
           while (parts.length > 2 && !targetGroupEntry) {
             parts.pop();
             const baseJid = parts.join(':');
@@ -297,11 +307,13 @@ export async function processTaskIpc(
           break;
         }
 
-        // Use the topic-specific folder for container isolation, not the
-        // parent group's folder. This ensures each topic gets its own
-        // CLAUDE.md, logs dir, and session state.
-        const targetFolder = targetJid.includes(':')
-          ? targetJid.replace(/:/g, '_')
+        // Folder routing:
+        // - For topic JIDs we isolate per-topic.
+        // - For Telegram chat IDs (telegram:<agent>:<chatId>) we DO NOT isolate per-chat;
+        //   use the base group folder so auth and config are stable.
+        const routingJid = groupLookupJid;
+        const targetFolder = routingJid.includes(':')
+          ? routingJid.replace(/:/g, '_')
           : targetGroupEntry.folder;
 
         // Authorization: non-main groups can only schedule for themselves
@@ -351,9 +363,20 @@ export async function processTaskIpc(
           nextRun = date.toISOString();
         }
 
-        const taskId =
+        let taskId =
           data.taskId ||
           `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+        // scheduled_tasks.id is a PRIMARY KEY. Interactive task IDs can collide
+        // across groups (e.g. if two agents receive a message in the same millisecond).
+        // If a task with this ID already exists, make it unique rather than crashing.
+        if (
+          (taskId.startsWith('gchat-msg-') || taskId.startsWith('tg-msg-')) &&
+          getTaskById(taskId)
+        ) {
+          const suffix = Math.random().toString(36).slice(2, 8);
+          taskId = `${taskId}-${suffix}`;
+        }
         const contextMode =
           data.context_mode === 'group' || data.context_mode === 'isolated'
             ? data.context_mode

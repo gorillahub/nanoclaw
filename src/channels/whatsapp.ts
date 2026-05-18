@@ -63,9 +63,12 @@ export class WhatsAppChannel implements Channel {
   }
 
   async connect(): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      this.connectInternal(resolve).catch(reject);
-    });
+    // TEMP: WhatsApp disabled for stability.
+    logger.warn(
+      'WhatsApp channel disabled (temporary) — continuing without WhatsApp',
+    );
+    this.connected = false;
+    return;
   }
 
   private async connectInternal(onFirstOpen?: () => void): Promise<void> {
@@ -102,7 +105,11 @@ export class WhatsAppChannel implements Channel {
         exec(
           `osascript -e 'display notification "${msg}" with title "NanoClaw" sound name "Basso"'`,
         );
-        setTimeout(() => process.exit(1), 1000);
+        logger.warn(
+          'WhatsApp authentication required. WhatsApp channel disabled (continuing without WhatsApp).',
+        );
+        this.connected = false;
+        return;
       }
 
       if (connection === 'close') {
@@ -132,7 +139,8 @@ export class WhatsAppChannel implements Channel {
           });
         } else {
           logger.info('Logged out. Run /setup to re-authenticate.');
-          process.exit(0);
+          this.connected = false;
+          return;
         }
       } else if (connection === 'open') {
         this.connected = true;
