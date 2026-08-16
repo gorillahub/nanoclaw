@@ -16,6 +16,7 @@ import {
 } from './container-runner.js';
 import {
   getAllTasks,
+  pruneOldTasks,
   getDueTasks,
   getTaskById,
   logTaskRun,
@@ -542,12 +543,34 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
   schedulerDeps = deps;
   logger.info('Scheduler loop started');
 
+  // Retention: keep scheduled_tasks / task_run_logs bounded. An unpruned table
+  // (5.5k completed rows) was loaded whole into a per-run tasks snapshot and
+  // OOM'd the process (2026-08-16). Prune on boot, then roughly daily.
+  const runPrune = () => {
+    try {
+      const pruned = pruneOldTasks();
+      if (pruned.tasks || pruned.logs) {
+        logger.info(
+          { prunedTasks: pruned.tasks, prunedLogs: pruned.logs },
+          'Pruned old tasks/logs (retention)',
+        );
+      }
+    } catch (err) {
+      logger.error({ err }, 'Task retention prune failed');
+    }
+  };
+  runPrune();
+  let pruneCounter = 0;
+
   const loop = async () => {
     try {
       checkDueTasks(deps);
     } catch (err) {
       logger.error({ err }, 'Error in scheduler loop');
     }
+
+    // ~daily retention pass (poll interval is 60s => 1440 cycles/day).
+    if (++pruneCounter % 1440 === 0) runPrune();
 
     setTimeout(loop, SCHEDULER_POLL_INTERVAL);
   };

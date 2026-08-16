@@ -581,6 +581,40 @@ export function deleteTask(id: string): void {
   db.prepare('DELETE FROM scheduled_tasks WHERE id = ?').run(id);
 }
 
+/**
+ * Retention: delete terminal one-off tasks and stale run logs older than
+ * retentionDays so scheduled_tasks / task_run_logs cannot grow unbounded.
+ * A 5.5k-row scheduled_tasks table (loaded wholesale into a per-run tasks
+ * snapshot) OOM'd the process on 2026-08-16. Recurring (cron) tasks are never
+ * deleted. Returns counts removed.
+ */
+export function pruneOldTasks(retentionDays = 14): {
+  tasks: number;
+  logs: number;
+} {
+  const cutoff = new Date(
+    Date.now() - retentionDays * 86_400_000,
+  ).toISOString();
+  const doomed = db
+    .prepare(
+      `SELECT id FROM scheduled_tasks WHERE schedule_type = 'once' AND status IN ('completed','failed','cancelled') AND COALESCE(last_run, created_at) < ?`,
+    )
+    .all(cutoff) as Array<{ id: string }>;
+  const delLogs = db.prepare('DELETE FROM task_run_logs WHERE task_id = ?');
+  const delTask = db.prepare('DELETE FROM scheduled_tasks WHERE id = ?');
+  const tx = db.transaction((ids: string[]) => {
+    for (const id of ids) {
+      delLogs.run(id);
+      delTask.run(id);
+    }
+  });
+  tx(doomed.map((r) => r.id));
+  const logs = db
+    .prepare('DELETE FROM task_run_logs WHERE run_at < ?')
+    .run(cutoff).changes;
+  return { tasks: doomed.length, logs };
+}
+
 export function getDueTasks(): ScheduledTask[] {
   const now = new Date().toISOString();
   return db
