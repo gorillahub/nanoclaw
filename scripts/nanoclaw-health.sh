@@ -80,9 +80,35 @@ if [ -f "$STORE_DB" ]; then
   else ok "scheduled_tasks: $cnt rows"; fi
 fi
 
-# 5) agent auth token present
-tok=$(grep -E '^CLAUDE_CODE_OAUTH_TOKEN=' "$ENV_FILE" 2>/dev/null | sed 's/^[^=]*=//')
-[ -n "$tok" ] && ok "CLAUDE_CODE_OAUTH_TOKEN present" || crit "CLAUDE_CODE_OAUTH_TOKEN missing/empty in .env"
+# 5) agent auth LIVENESS — a token being PRESENT is not enough (a stale/expired
+#    token still parses). On 2026-08-18 the dispatcher was healthy but every
+#    agent replied "Not logged in · Please run /login" because the Claude Max
+#    OAuth had lapsed (oauth-credentials.json missing, .env fallback token
+#    expired) — invisible to a presence check. Resolve the token the way
+#    container-runner does (oauth-credentials.json accessToken first, else the
+#    .env fallback) and actually exercise it against the API via the claude
+#    binary. Edge case: a valid refreshToken with an expired accessToken would
+#    false-positive here (nanoclaw's own refresh isn't replicated) — acceptable,
+#    it yields a "check Holly" nudge, never a silent failure.
+CRED=/opt/nanoclaw/oauth-credentials.json
+tok=""
+[ -f "$CRED" ] && tok=$(node -e 'try{const c=require("/opt/nanoclaw/oauth-credentials.json");process.stdout.write(c.accessToken||c.access_token||"")}catch(e){}' 2>/dev/null)
+[ -z "$tok" ] && tok=$(grep -E '^CLAUDE_CODE_OAUTH_TOKEN=' "$ENV_FILE" 2>/dev/null | sed 's/^[^=]*=//')
+if [ -z "$tok" ]; then
+  crit "no Claude credential — oauth-credentials.json missing AND CLAUDE_CODE_OAUTH_TOKEN empty in .env; run /login"
+elif ! command -v claude >/dev/null 2>&1; then
+  warn "claude binary not found — cannot verify auth (token is present)"
+else
+  probe=$(cd /tmp && runuser -u nanoclaw -- env HOME=/home/nanoclaw CLAUDE_CODE_OAUTH_TOKEN="$tok" timeout 30 claude -p "Reply with the single word: OK" </dev/null 2>&1 | tr -d '\r')
+  if printf '%s' "$probe" | grep -qiE "Not logged in|Invalid bearer token|authentication_error|Please run /login|401"; then
+    reason=$(printf '%s' "$probe" | grep -oiE "Not logged in|Invalid bearer token|authentication_error" | head -1)
+    crit "Claude auth FAILED — agents cannot log in (${reason:-auth error}); refresh via /login then update CLAUDE_CODE_OAUTH_TOKEN / oauth-credentials.json"
+  elif printf '%s' "$probe" | grep -qiE '(^|[^A-Za-z])OK([^A-Za-z]|$)'; then
+    ok "Claude auth live (probe returned OK)"
+  else
+    warn "Claude auth probe inconclusive: $(printf '%s' "$probe" | tr '\n' ' ' | head -c 140)"
+  fi
+fi
 
 # 6) runaway logs
 big=$(find /opt/nanoclaw/logs -maxdepth 1 -type f -size +500M 2>/dev/null | tr '\n' ' ')
